@@ -158,7 +158,7 @@ public class SummaryExcelExporter {
             writeCell(row, colIndex++, "", thickBorder);
             writeCell(row, colIndex++, summaryRow.getSelfConsummated(), "#,###0.000 \"kWh\"", lightBorder);
             writeCell(row, colIndex++, summaryRow.getSavings(), "#,###0.000 \"CZK\"", lightBorder);
-            writeCell(row, colIndex++, summaryRow.getSelfUsePercentage(), "#,##0.00 \"%\"", lightBorder);
+            writeCell(row, colIndex++, summaryRow.getSelfUsePercentage(), "#,##0.00 \"%\"", thickBorder);
             writeCell(row, colIndex++, "", thickBorder);
             writeCell(row, colIndex++, profitLoss, "#,###0.000 \"CZK\"", thickBorder);
         }

@@ -275,9 +275,9 @@ public class SummaryService {
 
     @EventListener(ApplicationReadyEvent.class)
     public void test() {
-//        processSummary(YearMonth.of(2025, 3));
-//        processSummary(YearMonth.of(2025, 5));
-//        processSummary(YearMonth.of(2025, 6));
+        processSummary(YearMonth.of(2025, 3));
+        processSummary(YearMonth.of(2025, 5));
+        processSummary(YearMonth.of(2025, 6));
         processSummary(YearMonth.of(2025, 7));
     }
 }
