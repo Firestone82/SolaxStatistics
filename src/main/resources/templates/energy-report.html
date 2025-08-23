@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <title>Energy Report — {{date}}</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html {
+            font-size: 16px;
+        }
+
+        body {
+            margin: 0;
+            padding: 24px;
+            font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+            background: #f6f8fb;
+            color: #0f172a;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        .wrap {
+            max-width: 780px;
+            margin: 0 auto;
+            background: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(2, 6, 23, .08);
+            overflow: hidden;
+            border: 1px solid #eef2f7;
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 20px 24px;
+            background: radial-gradient(1200px 500px at -10% -30%, #eef2ff 0%, #ffffff 60%);
+            border-bottom: 1px solid #edf2f7;
+        }
+
+        .title {
+            margin: 0;
+            font-size: clamp(18px, 2.2vw + 12px, 24px);
+            font-weight: 800;
+            letter-spacing: .2px;
+        }
+
+        .chip {
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: .4px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: #eef2ff;
+            color: #4338ca;
+            border: 1px solid #e0e7ff;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .section {
+            padding: 20px 24px;
+        }
+
+        .kpis {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        @media (min-width: 760px) {
+            .kpis {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 480px) {
+            .kpis {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            border: 1px solid #eef2f7;
+            background: #fbfdff;
+            border-radius: 12px;
+            padding: 14px;
+        }
+
+        .label {
+            font-size: 12px;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: .6px;
+        }
+
+        .value {
+            margin-top: 6px;
+            font-size: clamp(18px, 2.2vw + 10px, 22px);
+            font-weight: 800;
+        }
+
+        .muted {
+            color: #64748b;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        @media (max-width: 760px) {
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .table-wrap {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            border-radius: 12px;
+            border: 1px solid #eef2f7;
+            background: #ffffff;
+        }
+
+        .table {
+            width: 100%;
+            min-width: 460px;
+            border-collapse: collapse;
+            margin: 0;
+            font-size: 14px;
+        }
+
+        .table th, .table td {
+            padding: 10px 12px;
+            text-align: left;
+        }
+
+        .table thead th {
+            background: #f8fafc;
+            color: #475569;
+            font-weight: 700;
+        }
+
+        .table tbody tr + tr td {
+            border-top: 1px solid #eef2f7;
+        }
+
+        .foot {
+            padding: 14px 24px;
+            font-size: 12px;
+            color: #64748b;
+            border-top: 1px solid #edf2f7;
+            background: #fcfcfd;
+            text-align: center;
+        }
+
+        .mono {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        }
+
+        .ps-1 {
+            padding-left: 5px;
+        }
+
+        .notes {
+            display: grid;
+            grid-template-rows: auto 1fr;
+        }
+
+        @media (max-width: 480px) {
+            body {
+                padding: 16px;
+            }
+
+            .section {
+                padding: 16px;
+            }
+
+            .header {
+                padding: 16px;
+            }
+        }
+
+        @supports (padding: max(0px)) {
+            body {
+                padding-left: max(16px, env(safe-area-inset-left));
+                padding-right: max(16px, env(safe-area-inset-right));
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="wrap" role="region" aria-label="Energy Summary">
+    <div class="header">
+        <h1 class="title">Energy Summary</h1>
+        <span class="chip" aria-label="Report date">{{date}}</span>
+    </div>
+
+    <div class="section">
+        <div class="kpis" role="list">
+            <div class="card" role="listitem">
+                <div class="label">Consumption</div>
+                <div class="value">{{consumption}} <span class="muted">kWh</span></div>
+            </div>
+
+            <div class="card" role="listitem">
+                <div class="label">Yield</div>
+                <div class="value">{{yield}} <span class="muted">kWh</span></div>
+            </div>
+
+            <div class="card" role="listitem">
+                <div class="label">Import Cost</div>
+                <div class="value">{{importCostCZK}} CZK<span class="ps-1 muted">/ {{importCostEUR}} €</span></div>
+            </div>
+
+            <div class="card" role="listitem">
+                <div class="label">Export Revenue</div>
+                <div class="value">{{exportRevenueCZK}} CZK<span class="ps-1 muted">/ {{exportRevenueEUR}} €</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="grid-2">
+            <div>
+                <div class="label" style="margin-bottom:6px;">Import / Export (kWh)</div>
+                <div class="table-wrap" role="region" aria-label="Import and export table" tabindex="0">
+                    <table class="table">
+                        <thead>
+                        <tr>
+                            <th scope="col">Source</th>
+                            <th scope="col">Import</th>
+                            <th scope="col">Export</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr>
+                            <td>ČEZ</td>
+                            <td class="mono">{{importCEZ}}</td>
+                            <td class="mono">{{exportCEZ}}</td>
+                        </tr>
+                        <tr>
+                            <td>Wujek</td>
+                            <td class="mono">{{importRest}}</td>
+                            <td class="mono">{{exportRest}}</td>
+                        </tr>
+                        <tr>
+                            <td></td>
+                            <td class="mono"><strong>{{importTotal}}</strong></td>
+                            <td class="mono"><strong>{{exportTotal}}</strong></td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="notes">
+                <div class="label" style="margin-bottom:6px;">Notes</div>
+                <div class="card" style="height:100%;">
+                    <div class="muted">Generated at {{timestamp}}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="foot">&copy; 2025-{{year}} • Solax Statistics Report</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,57 @@
+solax:
+  url:
+    portal: "https://global.solaxcloud.com/user-center/"
+    report: "https://global.solaxcloud.com/green/#/plant-list"
+    exportedData: "https://global.solaxcloud.com/green/#/task-list"
+  credentials:
+    username: "YOUR_USERNAME"
+    password: "YOUR_PASSWORD"
+
+# API for electricity prices provided to grid
+# - Documentation: https://spotovaelektrina.cz/api
+ote:
+  baseUrl: "https://spotovaelektrina.cz"
+
+cez:
+  url:
+    portal: "https://dip.cezdistribuce.cz/irj/portal/"
+    export: "https://pnd.cezdistribuce.cz/cezpnd2/external/data/export"
+  meterId: 123456789
+  credentials:
+    username: "YOUR_USERNAME"
+    password: "YOUR_PASSWORD"
+  tariff:
+    # Prices per kWh
+    importPrice:
+      eur: 0.3
+      czk: 7.5
+    exportFee:
+      czk: 0.5
+      eur: 0.02
+
+data:
+  # Path to the directory where the data will be stored
+  directory: "data"
+
+email:
+  sender: "your-sender@domain.com"
+  recipients: "your-reciepent@domain.com"
+
+spring:
+  mail:
+    host: "YOUR_HOST"
+    port: 465
+    username: "YOUR_USERNAME"
+    password: "YOUR_PASSWORD"
+    properties:
+      mail:
+        smtp:
+          auth: true
+    ssl:
+      enabled: true
+
+# Logging configuration
+logging:
+  config: classpath:log4j2.xml
+  level:
+    me.firestone82.solaxstatistics: TRACE
