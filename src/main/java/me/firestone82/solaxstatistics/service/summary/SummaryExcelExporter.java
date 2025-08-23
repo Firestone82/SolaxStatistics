@@ -53,6 +53,7 @@ public class SummaryExcelExporter {
 
     public void exportToExcel(OverallSummary summary, List<SummaryRow> monthlyStatistics, File file) {
         monthlyStatistics.addFirst(summary.getTotal());
+        List<SummaryRow> yearlyStatistics = SummaryRow.aggregate(monthlyStatistics, SummaryRow.Granularity.YEAR);
 
         try (Workbook workbook = new XSSFWorkbook()) {
             // Styles
@@ -66,38 +67,29 @@ public class SummaryExcelExporter {
             headerStyle.setBorderRight(BorderStyle.MEDIUM);
             headerStyle.setAlignment(HorizontalAlignment.CENTER);
 
+            int hourlyDataSize = summary.getHourly().size();
             Sheet hourlySheet = workbook.createSheet("Hourly");
             hourlySheet.createFreezePane(0, 1);
             writeRows(hourlySheet, summary.getHourly(), headerStyle, "yyyy-mm-dd hh:mm");
-            applyColorScaleFormatting(hourlySheet, 3, summary.getHourly().size(), false);
-            applyColorScaleFormatting(hourlySheet, 7, summary.getHourly().size(), true);
-            applyColorScaleFormatting(hourlySheet, 10, summary.getHourly().size(), true);
-            applyColorScaleFormatting(hourlySheet, 14, summary.getHourly().size(), false);
-            applyColorScaleFormatting(hourlySheet, 17, summary.getHourly().size(), false);
-            applyColorScaleFormatting(hourlySheet, 23, summary.getHourly().size(), false);
-            autoSizeAllColumns(hourlySheet);
+            colorSheet(hourlyDataSize, hourlySheet);
 
+            int dailyDataSize = summary.getDaily().size();
             Sheet dailySheet = workbook.createSheet("Daily");
             dailySheet.createFreezePane(0, 1);
             writeRows(dailySheet, summary.getDaily(), headerStyle, "yyyy-mm-dd");
-            applyColorScaleFormatting(dailySheet, 3, summary.getDaily().size(), false);
-            applyColorScaleFormatting(dailySheet, 7, summary.getDaily().size(), true);
-            applyColorScaleFormatting(dailySheet, 10, summary.getDaily().size(), true);
-            applyColorScaleFormatting(dailySheet, 14, summary.getDaily().size(), false);
-            applyColorScaleFormatting(dailySheet, 17, summary.getDaily().size(), false);
-            applyColorScaleFormatting(dailySheet, 23, summary.getDaily().size(), false);
-            autoSizeAllColumns(dailySheet);
+            colorSheet(dailyDataSize, dailySheet);
 
+            int monthlyDataSize = monthlyStatistics.size();
             Sheet monthlySheet = workbook.createSheet("Monthly");
             monthlySheet.createFreezePane(0, 1);
             writeRows(monthlySheet, monthlyStatistics, headerStyle, "yyyy-mm");
-            applyColorScaleFormatting(monthlySheet, 3, monthlyStatistics.size(), false);
-            applyColorScaleFormatting(monthlySheet, 7, monthlyStatistics.size(), true);
-            applyColorScaleFormatting(monthlySheet, 10, monthlyStatistics.size(), true);
-            applyColorScaleFormatting(monthlySheet, 14, monthlyStatistics.size(), false);
-            applyColorScaleFormatting(monthlySheet, 17, monthlyStatistics.size(), false);
-            applyColorScaleFormatting(monthlySheet, 23, monthlyStatistics.size(), false);
-            autoSizeAllColumns(monthlySheet);
+            colorSheet(monthlyDataSize, monthlySheet);
+
+            int yearlyDataSize = yearlyStatistics.size();
+            Sheet yearlySheet = workbook.createSheet("Yearly");
+            yearlySheet.createFreezePane(0, 1);
+            writeRows(yearlySheet, yearlyStatistics, headerStyle, "yyyy");
+            colorSheet(yearlyDataSize, yearlySheet);
 
             try (OutputStream os = Files.newOutputStream(file.toPath())) {
                 workbook.write(os);
@@ -105,6 +97,17 @@ public class SummaryExcelExporter {
         } catch (IOException e) {
             log.error("Failed to write Excel file {}: {}", file.getPath(), e.getMessage(), e);
         }
+    }
+
+    private void colorSheet(int monthlyDataSize, Sheet monthlySheet) {
+        applyColorScaleFormatting(monthlySheet, 3, monthlyDataSize, false);
+        applyColorScaleFormatting(monthlySheet, 7, monthlyDataSize, true);
+        applyColorScaleFormatting(monthlySheet, 10, monthlyDataSize, true);
+        applyColorScaleFormatting(monthlySheet, 14, monthlyDataSize, false);
+        applyColorScaleFormatting(monthlySheet, 17, monthlyDataSize, false);
+        applyColorScaleFormatting(monthlySheet, 21, monthlyDataSize, false);
+        applyColorScaleFormatting(monthlySheet, 23, monthlyDataSize, false);
+        autoSizeAllColumns(monthlySheet);
     }
 
     private void writeRows(Sheet sheet, List<SummaryRow> rows, CellStyle headerStyle, String dateFormat) {

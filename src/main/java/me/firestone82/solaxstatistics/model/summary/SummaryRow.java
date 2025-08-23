@@ -87,7 +87,8 @@ public class SummaryRow {
     public enum Granularity {
         HOUR(dt -> dt.truncatedTo(ChronoUnit.HOURS)),
         DAY(dt -> dt.toLocalDate().atStartOfDay()),
-        MONTH(dt -> YearMonth.from(dt).atDay(1).atStartOfDay());
+        MONTH(dt -> YearMonth.from(dt).atDay(1).atStartOfDay()),
+        YEAR(dt -> dt.toLocalDate().withDayOfYear(1).atStartOfDay());
 
         @Accessors(fluent = true)
         private final Function<LocalDateTime, LocalDateTime> classifier;
