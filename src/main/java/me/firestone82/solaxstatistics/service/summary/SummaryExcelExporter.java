@@ -44,6 +44,10 @@ public class SummaryExcelExporter {
             "Export Revenue (Self)",
             "Total Export Revenue",
             "",
+            "Self consumption",
+            "Savings",
+            "Self-use Rate",
+            "",
             "Profit/Loss"
     };
 
@@ -70,7 +74,7 @@ public class SummaryExcelExporter {
             applyColorScaleFormatting(hourlySheet, 10, summary.getHourly().size(), true);
             applyColorScaleFormatting(hourlySheet, 14, summary.getHourly().size(), false);
             applyColorScaleFormatting(hourlySheet, 17, summary.getHourly().size(), false);
-            applyColorScaleFormatting(hourlySheet, 19, summary.getHourly().size(), false);
+            applyColorScaleFormatting(hourlySheet, 23, summary.getHourly().size(), false);
             autoSizeAllColumns(hourlySheet);
 
             Sheet dailySheet = workbook.createSheet("Daily");
@@ -81,7 +85,7 @@ public class SummaryExcelExporter {
             applyColorScaleFormatting(dailySheet, 10, summary.getDaily().size(), true);
             applyColorScaleFormatting(dailySheet, 14, summary.getDaily().size(), false);
             applyColorScaleFormatting(dailySheet, 17, summary.getDaily().size(), false);
-            applyColorScaleFormatting(dailySheet, 19, summary.getDaily().size(), false);
+            applyColorScaleFormatting(dailySheet, 23, summary.getDaily().size(), false);
             autoSizeAllColumns(dailySheet);
 
             Sheet monthlySheet = workbook.createSheet("Monthly");
@@ -92,7 +96,7 @@ public class SummaryExcelExporter {
             applyColorScaleFormatting(monthlySheet, 10, monthlyStatistics.size(), true);
             applyColorScaleFormatting(monthlySheet, 14, monthlyStatistics.size(), false);
             applyColorScaleFormatting(monthlySheet, 17, monthlyStatistics.size(), false);
-            applyColorScaleFormatting(monthlySheet, 19, monthlyStatistics.size(), false);
+            applyColorScaleFormatting(monthlySheet, 23, monthlyStatistics.size(), false);
             autoSizeAllColumns(monthlySheet);
 
             try (OutputStream os = Files.newOutputStream(file.toPath())) {
@@ -127,7 +131,7 @@ public class SummaryExcelExporter {
             double totalExport = summaryRow.getExportGrid() + summaryRow.getExportSelf();
             double totalImportCost = summaryRow.getImportCostGrid() + summaryRow.getImportCostSelf();
             double totalExportRevenue = summaryRow.getExportRevenueGrid() + summaryRow.getExportRevenueSelf();
-            double profitLoss = totalExportRevenue - totalImportCost;
+            double profitLoss = (totalExportRevenue - totalImportCost) + summaryRow.getSavings();
 
             // Date/DateTime -> Excel date (double)
             writeCell(row, colIndex++, summaryRow.getDate(), dateStyle);
@@ -148,6 +152,10 @@ public class SummaryExcelExporter {
             writeCell(row, colIndex++, summaryRow.getExportRevenueGrid(), "#,###0.000 \"CZK\"", lightBorder);
             writeCell(row, colIndex++, summaryRow.getExportRevenueSelf(), "#,###0.000 \"CZK\"", lightBorder);
             writeCell(row, colIndex++, totalExportRevenue, "#,###0.000 \"CZK\"", thickBorder);
+            writeCell(row, colIndex++, "", thickBorder);
+            writeCell(row, colIndex++, summaryRow.getSelfConsummated(), "#,###0.000 \"kWh\"", lightBorder);
+            writeCell(row, colIndex++, summaryRow.getSavings(), "#,###0.000 \"CZK\"", lightBorder);
+            writeCell(row, colIndex++, summaryRow.getSelfUsePercentage(), "#,##0.00 \"%\"", lightBorder);
             writeCell(row, colIndex++, "", thickBorder);
             writeCell(row, colIndex++, profitLoss, "#,###0.000 \"CZK\"", thickBorder);
         }

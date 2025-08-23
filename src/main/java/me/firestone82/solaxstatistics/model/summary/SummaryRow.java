@@ -38,6 +38,11 @@ public class SummaryRow {
     private double exportRevenueGrid;
     private double exportRevenueSelf;
 
+    // Self consumption
+    private double selfConsummated;
+    private double savings;
+    private double selfUsePercentage;
+
     /**
      * Flexible aggregator where you provide a classifier that maps each row's date
      * to a normalized bucket key (e.g., truncate to hour/day/month).
@@ -54,7 +59,7 @@ public class SummaryRow {
                     return SummaryRow.builder()
                             .date(entry.getKey())
                             .yield(group.stream().mapToDouble(SummaryRow::getYield).sum())
-                            .consumption(group.stream().mapToDouble(SummaryRow::getConsumption).sum())
+                            .selfUsePercentage(group.stream().mapToDouble(SummaryRow::getSelfUsePercentage).average().orElse(0.0))
                             .exportPriceGrid(0) // group.stream().mapToDouble(SummaryRow::getExportPriceGrid).average().orElse(0.0))
                             .importGrid(group.stream().mapToDouble(SummaryRow::getImportGrid).sum())
                             .importSelf(group.stream().mapToDouble(SummaryRow::getImportSelf).sum())
@@ -64,6 +69,9 @@ public class SummaryRow {
                             .exportSelf(group.stream().mapToDouble(SummaryRow::getExportSelf).sum())
                             .exportRevenueGrid(group.stream().mapToDouble(SummaryRow::getExportRevenueGrid).sum())
                             .exportRevenueSelf(group.stream().mapToDouble(SummaryRow::getExportRevenueSelf).sum())
+                            .consumption(group.stream().mapToDouble(SummaryRow::getConsumption).sum())
+                            .selfConsummated(group.stream().mapToDouble(SummaryRow::getSelfConsummated).sum())
+                            .savings(group.stream().mapToDouble(SummaryRow::getSavings).sum())
                             .build();
                 })
                 .sorted(Comparator.comparing(SummaryRow::getDate))

@@ -151,6 +151,9 @@ public class SummaryService {
         variables.put("exportRevenueSelf", summary.getTotal().getExportRevenueSelf());
         variables.put("totalImportCost", summary.getTotal().getImportCostGrid() + summary.getTotal().getImportCostSelf());
         variables.put("totalExportRevenue", summary.getTotal().getExportRevenueGrid() + summary.getTotal().getExportRevenueSelf());
+        variables.put("selfConsummated", summary.getTotal().getSelfConsummated());
+        variables.put("savings", summary.getTotal().getSavings());
+        variables.put("selfUsePercentage", summary.getTotal().getSelfUsePercentage());
         variables.put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
 
         // Round all double values to 3 decimal places
@@ -217,7 +220,7 @@ public class SummaryService {
                     // Prices
                     double importPriceGrid = cezTariff.getImportPrice().getCzk() > 0 ? cezTariff.getImportPrice().getCzk() : priceEntry.getCzkPriceMWh();
                     double importPriceSelf = getDayNightPrice(2.1, 1.1); // CZK/kWh
-                    double exportPriceGrid = priceEntry.getCzkPriceMWh();
+                    double exportPriceGrid = priceEntry.getCzkPriceMWh() / 1000;
                     double exportPriceSelf = 0.0; // Calculate later by ... (totalSelfExport - totalSelfImport) * 3.0
 
                     // Import
@@ -229,8 +232,13 @@ public class SummaryService {
                     // Export
                     double exportGrid = energyEntry.getExportMWh();
                     double exportRest = Math.max((statisticsEntry.getExportMWh() * 1000) - exportGrid, 0);
-                    double exportRevenueGrid = Math.max((exportGrid * exportPriceGrid / 1000) - (exportGrid * cezTariff.getExportFee().getCzk()), 0);
+                    double exportRevenueGrid = Math.max((exportGrid * exportPriceGrid) - (exportGrid * cezTariff.getExportFee().getCzk()), 0);
                     double exportRevenueSelf = exportRest * exportPriceSelf;
+
+                    // Self consumption
+                    double selfConsumed = consumption - importGrid - importRest;
+                    double savings = selfConsumed * importPriceGrid;
+                    double selfUsePercentage = (selfConsumed / consumption) * 100.0;
 
                     return SummaryRow.builder()
                             .date(e.getKey())
@@ -245,6 +253,9 @@ public class SummaryService {
                             .exportSelf(exportRest)
                             .exportRevenueGrid(exportRevenueGrid)
                             .exportRevenueSelf(exportRevenueSelf)
+                            .selfConsummated(selfConsumed)
+                            .savings(savings)
+                            .selfUsePercentage(selfUsePercentage)
                             .build();
                 })
                 .sorted(Comparator.comparing(SummaryRow::getDate))
@@ -264,6 +275,9 @@ public class SummaryService {
 
     @EventListener(ApplicationReadyEvent.class)
     public void test() {
+//        processSummary(YearMonth.of(2025, 3));
+//        processSummary(YearMonth.of(2025, 5));
+//        processSummary(YearMonth.of(2025, 6));
         processSummary(YearMonth.of(2025, 7));
     }
 }

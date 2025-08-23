@@ -74,14 +74,8 @@
 
         .kpis {
             display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-template-columns: repeat(2, 1fr);
             gap: 12px;
-        }
-
-        @media (min-width: 760px) {
-            .kpis {
-                grid-template-columns: repeat(3, minmax(0, 1fr));
-            }
         }
 
         @media (max-width: 480px) {
@@ -278,12 +272,22 @@
 
             <div class="card" role="listitem">
                 <div class="label">Import Cost</div>
-                <div class="value">{{totalImportCost}} CZK</div>
+                <div class="value">{{totalImportCost}} <span class="muted">CZK</span></div>
             </div>
 
             <div class="card" role="listitem">
                 <div class="label">Export Revenue</div>
-                <div class="value">{{totalExportRevenue}} CZK</div>
+                <div class="value">{{totalExportRevenue}} <span class="muted">CZK</span></div>
+            </div>
+
+            <div class="card" role="listitem">
+                <div class="label">Savings</div>
+                <div class="value">{{savings}} <span class="muted">CZK</span></div>
+            </div>
+
+            <div class="card" role="listitem">
+                <div class="label">Self-use percentage</div>
+                <div class="value">{{selfUsePercentage}}<span class="muted">%</span></div>
             </div>
         </div>
     </div>

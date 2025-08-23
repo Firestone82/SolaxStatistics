@@ -19,7 +19,9 @@ public class OverallSummary {
         this.daily = SummaryRow.aggregate(this.hourly, SummaryRow.Granularity.DAY);
         this.daily.forEach(day -> {
             // Calculate self export revenue
-            day.setExportRevenueSelf((day.getExportSelf() - day.getImportSelf()) * 3.0);
+            if ((day.getExportSelf() - day.getImportSelf()) > 0) {
+                day.setExportRevenueSelf((day.getExportSelf() - day.getImportSelf()) * 3.0);
+            }
 
             if (day.getExportSelf() < day.getImportSelf()) {
                 double overflow = day.getImportSelf() - day.getExportSelf();
