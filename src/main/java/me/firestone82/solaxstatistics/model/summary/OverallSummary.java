@@ -15,7 +15,19 @@ public class OverallSummary {
     public OverallSummary(YearMonth date, List<SummaryRow> hourly) {
         this.date = date;
         this.hourly = hourly;
+
         this.daily = SummaryRow.aggregate(this.hourly, SummaryRow.Granularity.DAY);
+        this.daily.forEach(day -> {
+            // Calculate self export revenue
+            day.setExportRevenueSelf((day.getExportSelf() - day.getImportSelf()) * 3.0);
+
+            if (day.getExportSelf() < day.getImportSelf()) {
+                double overflow = day.getImportSelf() - day.getExportSelf();
+                day.setImportCostSelf(day.getImportCostSelf() + (overflow * 4.5));
+            }
+        });
+
+        // Calculate self export revenue
         this.total = SummaryRow.aggregate(this.daily, SummaryRow.Granularity.MONTH).getFirst();
     }
 }

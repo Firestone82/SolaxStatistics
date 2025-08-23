@@ -138,7 +138,6 @@
 
         .table {
             width: 100%;
-            min-width: 460px;
             border-collapse: collapse;
             margin: 0;
             font-size: 14px;
@@ -172,10 +171,6 @@
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
         }
 
-        .ps-1 {
-            padding-left: 5px;
-        }
-
         .notes {
             display: grid;
             grid-template-rows: auto 1fr;
@@ -201,6 +196,65 @@
                 padding-right: max(16px, env(safe-area-inset-right));
             }
         }
+
+        /* Dark mode overrides without CSS variables */
+        @media (prefers-color-scheme: dark) {
+            body {
+                background: #0f172a;
+                color: #f1f5f9;
+            }
+
+            .wrap {
+                background: #1e293b;
+                border: 1px solid #334155;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, .6);
+            }
+
+            .header {
+                background: radial-gradient(1200px 500px at -10% -30%, #1e293b 0%, #0f172a 60%);
+                border-bottom: 1px solid #334155;
+            }
+
+            .chip {
+                background: #312e81;
+                color: #e0e7ff;
+                border: 1px solid #4338ca;
+            }
+
+            .card {
+                border: 1px solid #334155;
+                background: #1e293b;
+            }
+
+            .label {
+                color: #94a3b8;
+            }
+
+            .muted {
+                color: #94a3b8;
+            }
+
+            .table-wrap {
+                border: 1px solid #334155;
+                background: #1e293b;
+            }
+
+            .table thead th {
+                background: #1e293b;
+                color: #94a3b8;
+            }
+
+            .table tbody tr + tr td {
+                border-top: 1px solid #334155;
+            }
+
+            .foot {
+                color: #94a3b8;
+                border-top: 1px solid #334155;
+                background: #1e293b;
+            }
+        }
+
     </style>
 </head>
 <body>
@@ -224,13 +278,12 @@
 
             <div class="card" role="listitem">
                 <div class="label">Import Cost</div>
-                <div class="value">{{importCostCZK}} CZK<span class="ps-1 muted">/ {{importCostEUR}} €</span></div>
+                <div class="value">{{totalImportCost}} CZK</div>
             </div>
 
             <div class="card" role="listitem">
                 <div class="label">Export Revenue</div>
-                <div class="value">{{exportRevenueCZK}} CZK<span class="ps-1 muted">/ {{exportRevenueEUR}} €</span>
-                </div>
+                <div class="value">{{totalExportRevenue}} CZK</div>
             </div>
         </div>
     </div>
@@ -238,7 +291,7 @@
     <div class="section">
         <div class="grid-2">
             <div>
-                <div class="label" style="margin-bottom:6px;">Import / Export (kWh)</div>
+                <div class="label" style="margin-bottom:6px;">Electricity</div>
                 <div class="table-wrap" role="region" aria-label="Import and export table" tabindex="0">
                     <table class="table">
                         <thead>
@@ -250,28 +303,54 @@
                         </thead>
                         <tbody>
                         <tr>
-                            <td>ČEZ</td>
-                            <td class="mono">{{importCEZ}}</td>
-                            <td class="mono">{{exportCEZ}}</td>
+                            <td>Grid</td>
+                            <td class="mono">{{importGrid}} kWh</td>
+                            <td class="mono">{{exportGrid}} kWh</td>
                         </tr>
                         <tr>
-                            <td>Wujek</td>
-                            <td class="mono">{{importRest}}</td>
-                            <td class="mono">{{exportRest}}</td>
+                            <td>Self</td>
+                            <td class="mono">{{importSelf}} kWh</td>
+                            <td class="mono">{{exportSelf}} kWh</td>
                         </tr>
                         <tr>
                             <td></td>
-                            <td class="mono"><strong>{{importTotal}}</strong></td>
-                            <td class="mono"><strong>{{exportTotal}}</strong></td>
+                            <td class="mono"><strong>{{totalImport}} kWh</strong></td>
+                            <td class="mono"><strong>{{totalExport}} kWh</strong></td>
                         </tr>
                         </tbody>
                     </table>
                 </div>
             </div>
-            <div class="notes">
-                <div class="label" style="margin-bottom:6px;">Notes</div>
-                <div class="card" style="height:100%;">
-                    <div class="muted">Generated at {{timestamp}}</div>
+
+            <div>
+                <div class="label" style="margin-bottom:6px;">Financials</div>
+                <div class="table-wrap" role="region" aria-label="Import and export table" tabindex="0">
+                    <table class="table">
+                        <thead>
+                        <tr>
+                            <th scope="col">Source</th>
+                            <th scope="col">Import</th>
+                            <th scope="col">Export</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr>
+                            <td>Grid</td>
+                            <td class="mono">{{importCostGrid}} CZK</td>
+                            <td class="mono">{{exportRevenueGrid}} CZK</td>
+                        </tr>
+                        <tr>
+                            <td>Self</td>
+                            <td class="mono">{{importCostSelf}} CZK</td>
+                            <td class="mono">{{exportRevenueSelf}} CZK</td>
+                        </tr>
+                        <tr>
+                            <td></td>
+                            <td class="mono"><strong>{{totalImportCost}} CZK</strong></td>
+                            <td class="mono"><strong>{{totalExportRevenue}} CZK</strong></td>
+                        </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>

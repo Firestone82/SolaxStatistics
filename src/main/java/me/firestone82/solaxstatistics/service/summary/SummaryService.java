@@ -77,8 +77,8 @@ public class SummaryService {
         List<SummaryRow> monthlyStatistics = getMonthlyHistory(yearMonth);
 
         OverallSummary summary = new OverallSummary(yearMonth, hourlyStatistics);
-        double totalImport = summary.getTotal().getImportCEZ() + summary.getTotal().getImportRest();
-        double totalExport = summary.getTotal().getExportCEZ() + summary.getTotal().getExportRest();
+        double totalImport = summary.getTotal().getImportGrid() + summary.getTotal().getImportSelf();
+        double totalExport = summary.getTotal().getExportGrid() + summary.getTotal().getExportSelf();
         log.info("Summary processing completed for {}. Total consumption/import/export: {}/{}/{} kWh", yearMonth, summary.getTotal().getConsumption(), totalImport, totalExport);
 
         // Save summary to file
@@ -132,21 +132,25 @@ public class SummaryService {
     }
 
     public void sendEmail(YearMonth yearMonth, OverallSummary summary, List<File> attachments) {
+        log.debug("Sending summary email for {}", yearMonth);
+
         Map<String, Object> variables = new HashMap<>();
         variables.put("date", yearMonth);
         variables.put("year", yearMonth.getYear());
         variables.put("consumption", summary.getTotal().getConsumption());
         variables.put("yield", summary.getTotal().getYield());
-        variables.put("importCostCZK", summary.getTotal().getImportCostCZK());
-        variables.put("importCostEUR", summary.getTotal().getImportCostEUR());
-        variables.put("exportRevenueCZK", summary.getTotal().getExportRevenueCZK());
-        variables.put("exportRevenueEUR", summary.getTotal().getExportRevenueEUR());
-        variables.put("importCEZ", summary.getTotal().getImportCEZ());
-        variables.put("importRest", summary.getTotal().getImportRest());
-        variables.put("exportCEZ", summary.getTotal().getExportCEZ());
-        variables.put("importTotal", summary.getTotal().getImportCEZ() + summary.getTotal().getImportRest());
-        variables.put("exportTotal", summary.getTotal().getExportCEZ() + summary.getTotal().getExportRest());
-        variables.put("exportRest", summary.getTotal().getExportRest());
+        variables.put("importGrid", summary.getTotal().getImportGrid());
+        variables.put("exportGrid", summary.getTotal().getExportGrid());
+        variables.put("importSelf", summary.getTotal().getImportSelf());
+        variables.put("exportSelf", summary.getTotal().getExportSelf());
+        variables.put("totalImport", summary.getTotal().getImportGrid() + summary.getTotal().getImportSelf());
+        variables.put("totalExport", summary.getTotal().getExportGrid() + summary.getTotal().getExportSelf());
+        variables.put("importCostGrid", summary.getTotal().getImportCostGrid());
+        variables.put("importCostSelf", summary.getTotal().getImportCostSelf());
+        variables.put("exportRevenueGrid", summary.getTotal().getExportRevenueGrid());
+        variables.put("exportRevenueSelf", summary.getTotal().getExportRevenueSelf());
+        variables.put("totalImportCost", summary.getTotal().getImportCostGrid() + summary.getTotal().getImportCostSelf());
+        variables.put("totalExportRevenue", summary.getTotal().getExportRevenueGrid() + summary.getTotal().getExportRevenueSelf());
         variables.put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
 
         // Round all double values to 3 decimal places
@@ -160,6 +164,7 @@ public class SummaryService {
 
         String subject = "FVE - Monthly report of " + yearMonth;
         emailService.sendEmail("energy-report.html", subject, variables, attachments);
+        log.info("Summary email for {} sent successfully", yearMonth);
     }
 
     public List<SummaryRow> getMonthlyHistory(YearMonth yearMonth) {
@@ -205,29 +210,56 @@ public class SummaryService {
                         return null; // Skip this entry if any data is missing
                     }
 
-                    // Import
-                    double importPriceEur = cezTariff.getImportPrice().getEur() > 0 ? cezTariff.getImportPrice().getEur() : priceEntry.getEurPriceMWh();
-                    double importPriceCzk = cezTariff.getImportPrice().getCzk() > 0 ? cezTariff.getImportPrice().getCzk() : priceEntry.getCzkPriceMWh();
-                    double importCez = energyEntry.getImportMWh();
-                    double importRest = Math.max((statisticsEntry.getImportMWh() * 1000) - importCez, 0);
-                    double importCostEUR = importCez * importPriceEur;
-                    double importCostCZK = importCez * importPriceCzk;
-
-                    // Export
-                    double exportPriceEur = priceEntry.getEurPriceMWh();
-                    double exportPriceCzk = priceEntry.getCzkPriceMWh();
-                    double exportCez = energyEntry.getExportMWh();
-                    double exportRest = Math.max((statisticsEntry.getExportMWh() * 1000) - exportCez, 0);
-                    double exportRevenueEUR = Math.max((exportCez * exportPriceEur / 1000) - (exportCez * cezTariff.getExportFee().getEur()), 0);
-                    double exportRevenueCZK = Math.max((exportCez * exportPriceCzk / 1000) - (exportCez * cezTariff.getExportFee().getCzk()), 0);
-
+                    // Solax
                     double consumption = statisticsEntry.getConsumptionMWh() * 1000;
                     double yield = statisticsEntry.getYieldMWh() * 1000;
 
-                    return new SummaryRow(e.getKey(), importCez, importRest, exportCez, exportRest, consumption, yield, exportPriceEur, exportPriceCzk, importCostEUR, importCostCZK, exportRevenueEUR, exportRevenueCZK);
+                    // Prices
+                    double importPriceGrid = cezTariff.getImportPrice().getCzk() > 0 ? cezTariff.getImportPrice().getCzk() : priceEntry.getCzkPriceMWh();
+                    double importPriceSelf = getDayNightPrice(2.1, 1.1); // CZK/kWh
+                    double exportPriceGrid = priceEntry.getCzkPriceMWh();
+                    double exportPriceSelf = 0.0; // Calculate later by ... (totalSelfExport - totalSelfImport) * 3.0
+
+                    // Import
+                    double importGrid = energyEntry.getImportMWh();
+                    double importRest = Math.max((statisticsEntry.getImportMWh() * 1000) - importGrid, 0);
+                    double importCostGrid = importGrid * importPriceGrid;
+                    double importCostSelf = importRest * importPriceSelf;
+
+                    // Export
+                    double exportGrid = energyEntry.getExportMWh();
+                    double exportRest = Math.max((statisticsEntry.getExportMWh() * 1000) - exportGrid, 0);
+                    double exportRevenueGrid = Math.max((exportGrid * exportPriceGrid / 1000) - (exportGrid * cezTariff.getExportFee().getCzk()), 0);
+                    double exportRevenueSelf = exportRest * exportPriceSelf;
+
+                    return SummaryRow.builder()
+                            .date(e.getKey())
+                            .yield(yield)
+                            .consumption(consumption)
+                            .exportPriceGrid(exportPriceGrid)
+                            .importGrid(importGrid)
+                            .importSelf(importRest)
+                            .importCostGrid(importCostGrid)
+                            .importCostSelf(importCostSelf)
+                            .exportGrid(exportGrid)
+                            .exportSelf(exportRest)
+                            .exportRevenueGrid(exportRevenueGrid)
+                            .exportRevenueSelf(exportRevenueSelf)
+                            .build();
                 })
                 .sorted(Comparator.comparing(SummaryRow::getDate))
                 .collect(Collectors.toList());
+    }
+
+    private double getDayNightPrice(double dayPrice, double nightPrice) {
+        // Night is interval 0-6 and 19-21
+        int currentHour = LocalDateTime.now().getHour();
+
+        if (currentHour < 6 || currentHour >= 19 && currentHour <= 21) {
+            return nightPrice;
+        }
+
+        return dayPrice;
     }
 
     @EventListener(ApplicationReadyEvent.class)

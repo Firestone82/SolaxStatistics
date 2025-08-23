@@ -1,6 +1,8 @@
 package me.firestone82.solaxstatistics.model.summary;
 
 import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
 import lombok.Getter;
 import lombok.experimental.Accessors;
 
@@ -13,22 +15,28 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-@Getter
+@Data
+@Builder
 @AllArgsConstructor
 public class SummaryRow {
     private LocalDateTime date;
-    private double importCEZ;
-    private double importRest;
-    private double exportCEZ;
-    private double exportRest;
-    private double consumption;
+
+    // Solax
     private double yield;
-    private double priceEUR;
-    private double priceCZK;
-    private double importCostEUR;
-    private double importCostCZK;
-    private double exportRevenueEUR;
-    private double exportRevenueCZK;
+    private double consumption;
+    private double exportPriceGrid;
+
+    // Import
+    private double importGrid;
+    private double importSelf;
+    private double importCostGrid;
+    private double importCostSelf;
+
+    // Export
+    private double exportGrid;
+    private double exportSelf;
+    private double exportRevenueGrid;
+    private double exportRevenueSelf;
 
     /**
      * Flexible aggregator where you provide a classifier that maps each row's date
@@ -43,27 +51,20 @@ public class SummaryRow {
                 .map(entry -> {
                     List<SummaryRow> group = entry.getValue();
 
-                    double minPriceEUR = group.stream().mapToDouble(SummaryRow::getPriceEUR).min().orElse(0.0);
-                    double maxPriceEUR = group.stream().mapToDouble(SummaryRow::getPriceEUR).max().orElse(0.0);
-
-                    double minPriceCZK = group.stream().mapToDouble(SummaryRow::getPriceCZK).min().orElse(0.0);
-                    double maxPriceCZK = group.stream().mapToDouble(SummaryRow::getPriceCZK).max().orElse(0.0);
-
-                    return new SummaryRow(
-                            entry.getKey(),
-                            group.stream().mapToDouble(SummaryRow::getImportCEZ).sum(),
-                            group.stream().mapToDouble(SummaryRow::getImportRest).sum(),
-                            group.stream().mapToDouble(SummaryRow::getExportCEZ).sum(),
-                            group.stream().mapToDouble(SummaryRow::getExportRest).sum(),
-                            group.stream().mapToDouble(SummaryRow::getConsumption).sum(),
-                            group.stream().mapToDouble(SummaryRow::getYield).sum(),
-                            maxPriceEUR - minPriceEUR,
-                            maxPriceCZK - minPriceCZK,
-                            group.stream().mapToDouble(SummaryRow::getImportCostEUR).sum(),
-                            group.stream().mapToDouble(SummaryRow::getImportCostCZK).sum(),
-                            group.stream().mapToDouble(SummaryRow::getExportRevenueEUR).sum(),
-                            group.stream().mapToDouble(SummaryRow::getExportRevenueCZK).sum()
-                    );
+                    return SummaryRow.builder()
+                            .date(entry.getKey())
+                            .yield(group.stream().mapToDouble(SummaryRow::getYield).sum())
+                            .consumption(group.stream().mapToDouble(SummaryRow::getConsumption).sum())
+                            .exportPriceGrid(0) // group.stream().mapToDouble(SummaryRow::getExportPriceGrid).average().orElse(0.0))
+                            .importGrid(group.stream().mapToDouble(SummaryRow::getImportGrid).sum())
+                            .importSelf(group.stream().mapToDouble(SummaryRow::getImportSelf).sum())
+                            .importCostGrid(group.stream().mapToDouble(SummaryRow::getImportCostGrid).sum())
+                            .importCostSelf(group.stream().mapToDouble(SummaryRow::getImportCostSelf).sum())
+                            .exportGrid(group.stream().mapToDouble(SummaryRow::getExportGrid).sum())
+                            .exportSelf(group.stream().mapToDouble(SummaryRow::getExportSelf).sum())
+                            .exportRevenueGrid(group.stream().mapToDouble(SummaryRow::getExportRevenueGrid).sum())
+                            .exportRevenueSelf(group.stream().mapToDouble(SummaryRow::getExportRevenueSelf).sum())
+                            .build();
                 })
                 .sorted(Comparator.comparing(SummaryRow::getDate))
                 .collect(Collectors.toList());
