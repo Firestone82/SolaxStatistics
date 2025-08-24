@@ -53,7 +53,10 @@ public class SummaryExcelExporter {
 
     public void exportToExcel(OverallSummary summary, List<SummaryRow> monthlyStatistics, File file) {
         monthlyStatistics.addFirst(summary.getTotal());
+
+        // Yearly statistics
         List<SummaryRow> yearlyStatistics = SummaryRow.aggregate(monthlyStatistics, SummaryRow.Granularity.YEAR);
+        yearlyStatistics = OverallSummary.preprocessExportSelf(yearlyStatistics);
 
         try (Workbook workbook = new XSSFWorkbook()) {
             // Styles

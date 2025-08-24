@@ -91,7 +91,7 @@ public class SummaryService {
         }
 
         // Send email with attachments
-        sendEmail(yearMonth, summary, List.of(excelFile.get()));
+//        sendEmail(yearMonth, summary, List.of(excelFile.get()));
 
         return Optional.of(summary);
     }
