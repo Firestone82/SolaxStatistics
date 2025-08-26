@@ -27,8 +27,9 @@ public class SolaxService {
     ) {
         log.info("Initializing Solax service");
 
-        this.solaxScraper = solaxScraper;
         this.dataDir = FileUtils.ensureFolderCreated(storagePath, "solax");
+        this.solaxScraper = solaxScraper;
+//        this.solaxScraper.setDownloadDir(new File(dataDir, "downloads"));
 
         log.info("Initialized Solax service. Data directory: {}", dataDir.getAbsolutePath());
     }

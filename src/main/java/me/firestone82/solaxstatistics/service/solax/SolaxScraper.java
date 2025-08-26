@@ -1,5 +1,6 @@
 package me.firestone82.solaxstatistics.service.solax;
 
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import me.firestone82.solaxstatistics.model.StatisticsEntry;
 import org.apache.poi.ss.usermodel.*;
@@ -13,6 +14,7 @@ import org.openqa.selenium.support.ui.WebDriverWait;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -35,6 +37,9 @@ public class SolaxScraper {
     private final String username;
     private final String password;
 
+    @Setter
+    private File downloadDir;
+
     public SolaxScraper(
             @Value("${solax.url.portal}") String portalUrl,
             @Value("${solax.url.report}") String reportUrl,
@@ -52,8 +57,24 @@ public class SolaxScraper {
     public Optional<List<StatisticsEntry>> scrapeData(YearMonth yearMonth) {
         log.debug("Scraping Solax data for {}", yearMonth);
 
-        Path tempDir = createTempDownloadDir().orElse(null);
-        if (tempDir == null) return Optional.empty();
+        Path tempDir;
+        if (downloadDir != null) {
+            tempDir = downloadDir.toPath();
+        } else {
+            tempDir = createTempDownloadDir().orElse(null);
+        }
+
+        if (tempDir == null) {
+            log.error("No valid download directory available, aborting");
+            return Optional.empty();
+        }
+
+        try {
+            Files.createDirectories(tempDir);
+        } catch (IOException e) {
+            log.error("Failed to create download directory {}: {}", tempDir, e.getMessage(), e);
+            return Optional.empty();
+        }
 
         ChromeOptions options = new ChromeOptions();
 //        options.addArguments("--headless=new", "--disable-gpu");
@@ -71,7 +92,7 @@ public class SolaxScraper {
             login(driver, wait);
             Thread.sleep(5000);
 
-            requestMonthlyExport(driver, wait, "%02d".formatted(yearMonth.getMonthValue()));
+            requestMonthlyExport(driver, wait, yearMonth);
             Thread.sleep(2000);
 
             if (!waitUntilExportCompleted(driver, wait, Duration.ofMinutes(3))) {
@@ -81,7 +102,7 @@ public class SolaxScraper {
 
             By FIRST_DOWNLOAD_ICON = By.cssSelector("#container > div > div.base-box > div.body > div > div.arco-table.arco-table-size-large.arco-table-border.arco-table-hover.arco-table-type-selection > div > div > div > table > tbody > tr:nth-child(1) > td:nth-child(8) > span > span > i.iconfont.icon-xiazai.success");
             wait.until(ExpectedConditions.elementToBeClickable(FIRST_DOWNLOAD_ICON)).click();
-
+//
             Path downloaded = waitForLatestDownload(tempDir, "Plant Reports", Duration.ofSeconds(30)).orElse(null);
             if (downloaded == null) {
                 log.warn("No exported file found in {}", tempDir);
@@ -119,7 +140,7 @@ public class SolaxScraper {
         wait.until(ExpectedConditions.elementToBeClickable(LOGIN_BUTTON)).click();
     }
 
-    private void requestMonthlyExport(WebDriver driver, WebDriverWait wait, String monthTwoDigits) throws InterruptedException {
+    private void requestMonthlyExport(WebDriver driver, WebDriverWait wait, YearMonth yearMonth) throws InterruptedException {
         navigate(driver, reportUrl, wait);
 
         By ADVANCED_EXPORT_BUTTON = By.xpath("//*[@id=\"container\"]/div[2]/div/div/div[1]/div[2]/button[2]");
@@ -131,16 +152,22 @@ public class SolaxScraper {
         Thread.sleep(1000);
 
         By PREV_MONTH_BTN = By.cssSelector("body > div:nth-child(15) > div > div > div > div > div.arco-picker-range > div > div:nth-child(1) > div > div.arco-picker-header > div:nth-child(2)");
+        By YEAR_TEXT = By.cssSelector("body > div:nth-child(15) > div > div > div > div > div.arco-picker-range > div > div:nth-child(1) > div > div.arco-picker-header > div.arco-picker-header-title > span:first-child");
         By MONTH_TEXT = By.cssSelector("body > div:nth-child(15) > div > div > div > div > div.arco-picker-range > div > div:nth-child(1) > div > div.arco-picker-header > div.arco-picker-header-title > span:nth-child(3)");
+
+        WebElement yearText = wait.until(ExpectedConditions.presenceOfElementLocated(YEAR_TEXT));
         WebElement monthText = wait.until(ExpectedConditions.presenceOfElementLocated(MONTH_TEXT));
+        String monthTwoDigits = "%02d".formatted(yearMonth.getMonthValue());
         int guard = 0; // guard prevents infinite loop
 
         // Move calendar to desired month
-        while (!monthText.getText().equalsIgnoreCase(monthTwoDigits) && guard++ < 24) {
+        while ((!monthText.getText().equalsIgnoreCase(monthTwoDigits) || !yearText.getText().equalsIgnoreCase(String.valueOf(yearMonth.getYear()))) && guard++ < 24) {
+            log.trace("Current calendar month/year: {}/{}. Target: {}/{}", monthText.getText(), yearText.getText(), monthTwoDigits, yearMonth.getYear());
             wait.until(ExpectedConditions.elementToBeClickable(PREV_MONTH_BTN)).click();
 
             // Let calendar re-render
             Thread.sleep(250);
+            yearText = wait.until(ExpectedConditions.presenceOfElementLocated(YEAR_TEXT));
             monthText = wait.until(ExpectedConditions.presenceOfElementLocated(MONTH_TEXT));
         }
 
@@ -152,6 +179,7 @@ public class SolaxScraper {
 
         cells.getFirst().findElement(By.className("arco-picker-date")).click();
         cells.getLast().findElement(By.className("arco-picker-date")).click();
+        Thread.sleep(1000);
 
         By EXPORT_CONFIRM = By.xpath("/html/body/div[9]/div[2]/div[3]/button[2]");
         wait.until(ExpectedConditions.elementToBeClickable(EXPORT_CONFIRM)).click();
@@ -246,6 +274,7 @@ public class SolaxScraper {
 
                 // skip 00:00:00 rows
                 if (ts.toLocalTime().equals(LocalTime.MIDNIGHT)) {
+                    log.warn("Skipping midnight entry at row {} - {}", rowIndex, row.getCell(1).getStringCellValue());
                     continue;
                 }
 

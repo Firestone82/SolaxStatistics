@@ -55,10 +55,10 @@ public class CEZScraper {
         LocalDateTime startDate = yearMonth.atDay(1).atStartOfDay();
         String from = URLEncoder.encode(startDate.format(DATE_FORMATTER), StandardCharsets.UTF_8);
 
-        LocalDateTime endDate = yearMonth.atEndOfMonth().atTime(23, 45, 00);
+        LocalDateTime endDate = yearMonth.atEndOfMonth().atTime(23, 45, 0);
         String to = URLEncoder.encode(endDate.format(DATE_FORMATTER), StandardCharsets.UTF_8);
 
-        String targetUrl = exportUrl + "?format=csv-simple&idAssembly=-1003&intervalFrom=" + from + "%2000%3A00&intervalTo=" + to + "%2000%3A00&electrometerId=" + meterId;
+        String targetUrl = exportUrl + "?format=csv-simple&idAssembly=-1003&intervalFrom=" + from + "%2000%3A00&intervalTo=" + to + "%2023%3A45&electrometerId=" + meterId;
         log.debug("Scraping CEZ data for {} from {}", yearMonth, targetUrl);
 
         // Temporary directory for downloads

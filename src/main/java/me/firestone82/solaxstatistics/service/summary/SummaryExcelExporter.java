@@ -17,6 +17,7 @@ import java.sql.Date;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.IntStream;
 
@@ -57,6 +58,7 @@ public class SummaryExcelExporter {
         // Yearly statistics
         List<SummaryRow> yearlyStatistics = SummaryRow.aggregate(monthlyStatistics, SummaryRow.Granularity.YEAR);
         yearlyStatistics = OverallSummary.preprocessExportSelf(yearlyStatistics);
+        Collections.reverse(yearlyStatistics);
 
         try (Workbook workbook = new XSSFWorkbook()) {
             // Styles

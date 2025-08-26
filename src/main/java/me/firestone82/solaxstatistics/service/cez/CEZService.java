@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import java.io.File;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -51,6 +52,11 @@ public class CEZService {
             return foundDataEntries;
         }
 
+        if (yearMonth.getYear() < 2025) {
+            log.warn("CEZ data is only available from 2025 onwards. Requested year: {}", yearMonth.getYear());
+            return Optional.of(generateEmptyEntries(yearMonth));
+        }
+
         log.trace("No cached file found, scraping data from CEZ website");
         Optional<List<EnergyEntry>> scrapedDataEntries = cezScraper.scrapeData(yearMonth);
 
@@ -65,5 +71,18 @@ public class CEZService {
         }
 
         return scrapedDataEntries;
+    }
+
+    private List<EnergyEntry> generateEmptyEntries(YearMonth yearMonth) {
+        List<EnergyEntry> entries = new ArrayList<>();
+        LocalDateTime current = yearMonth.atDay(1).atStartOfDay().withMinute(15);
+        LocalDateTime end = yearMonth.atEndOfMonth().atTime(23, 45);
+
+        while (!current.isAfter(end)) {
+            entries.add(new EnergyEntry(current, 0.0, 0.0));
+            current = current.plusMinutes(15);
+        }
+
+        return entries;
     }
 }
