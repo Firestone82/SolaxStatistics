@@ -174,8 +174,16 @@ public class SolaxScraper {
         // Select first and last visible day cells
         By CALENDAR_GRID = By.cssSelector("body > div:nth-child(15) > div > div > div > div > div.arco-picker-range > div > div:nth-child(1) > div > div.arco-picker-body");
         WebElement grid = wait.until(ExpectedConditions.visibilityOfElementLocated(CALENDAR_GRID));
+
         List<WebElement> cells = grid.findElements(By.className("arco-picker-cell-in-view"));
-        if (cells.isEmpty()) throw new IllegalStateException("Calendar grid has no in-view cells");
+        cells.removeIf(cell -> {
+            String classAttr = cell.getAttribute("class");
+            return classAttr != null && classAttr.contains("arco-picker-cell-disabled");
+        });
+
+        if (cells.isEmpty()) {
+            throw new IllegalStateException("Calendar grid has no in-view cells");
+        }
 
         cells.getFirst().findElement(By.className("arco-picker-date")).click();
         cells.getLast().findElement(By.className("arco-picker-date")).click();

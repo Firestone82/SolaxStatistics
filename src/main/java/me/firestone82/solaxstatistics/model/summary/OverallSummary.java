@@ -33,6 +33,13 @@ public class OverallSummary {
                 row.setExportRevenueSelf((row.getExportSelf() - row.getImportSelf()) * 3.0);
             }
 
+            int hour = row.getDate().getHour();
+            if (hour < 6 || hour >= 19 && hour <= 21) {
+                row.setImportCostSelf(row.getImportSelf() * 1.1);
+            } else {
+                row.setImportCostSelf(row.getImportSelf() * 2.1);
+            }
+
             if (row.getExportSelf() < row.getImportSelf()) {
                 double overflow = row.getImportSelf() - row.getExportSelf();
                 row.setImportCostSelf(row.getImportCostSelf() + (overflow * 4.5));

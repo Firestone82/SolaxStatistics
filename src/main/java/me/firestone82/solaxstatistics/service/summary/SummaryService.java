@@ -92,12 +92,12 @@ public class SummaryService {
 
         // Save summary to file
         Optional<File> excelFile = saveToExcel(summary, monthlyStatistics, yearMonth);
-//        Optional<File> jsonFile = saveToJson(summary.getTotal(), yearMonth);
-//
-//        if (excelFile.isEmpty() || jsonFile.isEmpty()) {
-//            log.warn("Failed to save summary files for {}", yearMonth);
-//            return Optional.empty();
-//        }
+        Optional<File> jsonFile = saveToJson(summary.getTotal(), yearMonth);
+
+        if (excelFile.isEmpty() || jsonFile.isEmpty()) {
+            log.warn("Failed to save summary files for {}", yearMonth);
+            return Optional.empty();
+        }
 
         // Send email with attachments
 //        sendEmail(yearMonth, summary, List.of(excelFile.get()));
@@ -246,7 +246,7 @@ public class SummaryService {
                     double importPriceGrid = cezTariff.getImportPrice().getCzk() > 0
                             ? cezTariff.getImportPrice().getCzk()
                             : priceEntry.getCzkPriceMWh();
-                    double importPriceSelf = getDayNightPrice(2.1, 1.1); // CZK/kWh
+                    double importPriceSelf = getDayNightPrice(dt.getHour(), 2.1, 1.1); // CZK/kWh
                     double exportPriceGrid = priceEntry.getCzkPriceMWh() / 1000;
                     double exportPriceSelf = 0.0; // Late calculation
 
@@ -254,16 +254,16 @@ public class SummaryService {
                     double importGrid = noExport
                             ? (statisticsEntry.getImportMWh() * 1000)
                             : energyEntry.getImportMWh();
-                    double importRest = Math.max((statisticsEntry.getImportMWh() * 1000) - importGrid, 0);
+                    double importSelf = Math.max((statisticsEntry.getImportMWh() * 1000) - importGrid, 0);
                     double importCostGrid = importGrid * importPriceGrid;
-                    double importCostSelf = importRest * importPriceSelf;
+                    double importCostSelf = importSelf * importPriceSelf;
 
                     // Export
                     double exportGrid = noExport
                             ? (statisticsEntry.getExportMWh() * 1000)
                             : energyEntry.getExportMWh();
                     double exportRest = Math.max((statisticsEntry.getExportMWh() * 1000) - exportGrid, 0);
-                    double exportRevenueGrid = Math.max((exportGrid * exportPriceGrid) - (exportGrid * cezTariff.getExportFee().getCzk()), 0);
+                    double exportRevenueGrid = (exportGrid * exportPriceGrid) - (exportGrid * cezTariff.getExportFee().getCzk());
                     double exportRevenueSelf = exportRest * exportPriceSelf;
 
                     if (noExport) {
@@ -272,7 +272,7 @@ public class SummaryService {
                     }
 
                     // Self consumption
-                    double selfConsumed = consumption - importGrid - importRest;
+                    double selfConsumed = consumption - importGrid - importSelf;
                     double savings = selfConsumed * importPriceGrid;
                     double selfUsePercentage = consumption == 0 ? 100.0 : Math.max((selfConsumed / consumption) * 100.0, 0);
 
@@ -282,7 +282,7 @@ public class SummaryService {
                             .consumption(consumption)
                             .exportPriceGrid(exportPriceGrid)
                             .importGrid(importGrid)
-                            .importSelf(importRest)
+                            .importSelf(importSelf)
                             .importCostGrid(importCostGrid)
                             .importCostSelf(importCostSelf)
                             .exportGrid(exportGrid)
@@ -299,11 +299,8 @@ public class SummaryService {
                 .collect(Collectors.toList());
     }
 
-    private double getDayNightPrice(double dayPrice, double nightPrice) {
-        // Night is interval 0-6 and 19-21
-        int currentHour = LocalDateTime.now().getHour();
-
-        if (currentHour < 6 || currentHour >= 19 && currentHour <= 21) {
+    private double getDayNightPrice(int hour, double dayPrice, double nightPrice) {
+        if (hour < 6 || hour >= 19 && hour <= 21) {
             return nightPrice;
         }
 
@@ -312,12 +309,7 @@ public class SummaryService {
 
     @EventListener(ApplicationReadyEvent.class)
     public void test() {
-        // Process from 2024-02 to current month
-        YearMonth start = YearMonth.of(2025, 1);
-        YearMonth current = YearMonth.now();
-
-        for (YearMonth ym = start; !ym.isAfter(current); ym = ym.plusMonths(1)) {
-            processSummary(ym);
-        }
+        YearMonth start = YearMonth.of(2025, 8);
+        processSummary(start);
     }
 }
