@@ -57,7 +57,7 @@ public class SummaryExcelExporter {
 
         // Yearly statistics
         List<SummaryRow> yearlyStatistics = SummaryRow.aggregate(monthlyStatistics, SummaryRow.Granularity.YEAR);
-        yearlyStatistics = OverallSummary.preprocessExportSelf(yearlyStatistics);
+        yearlyStatistics = OverallSummary.preprocessExportSelf(yearlyStatistics, true);
         Collections.reverse(yearlyStatistics);
 
         try (Workbook workbook = new XSSFWorkbook()) {

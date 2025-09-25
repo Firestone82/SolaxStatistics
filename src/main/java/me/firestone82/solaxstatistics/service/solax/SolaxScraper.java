@@ -16,6 +16,9 @@ import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -60,7 +63,9 @@ public class SolaxScraper {
         Path tempDir;
         if (downloadDir != null) {
             tempDir = downloadDir.toPath();
+            log.trace("Using provided download directory: {}", tempDir);
         } else {
+            log.trace("No download directory provided, creating a temporary one");
             tempDir = createTempDownloadDir().orElse(null);
         }
 
@@ -71,6 +76,7 @@ public class SolaxScraper {
 
         try {
             Files.createDirectories(tempDir);
+            log.trace("Ensured download directory exists: {}", tempDir.toAbsolutePath());
         } catch (IOException e) {
             log.error("Failed to create download directory {}: {}", tempDir, e.getMessage(), e);
             return Optional.empty();
@@ -79,38 +85,56 @@ public class SolaxScraper {
         ChromeOptions options = new ChromeOptions();
 //        options.addArguments("--headless=new", "--disable-gpu");
         options.addArguments("--no-sandbox", "--disable-dev-shm-usage");
-        options.setExperimentalOption("prefs", Map.of(
+        Map<String, Object> chromePrefs = Map.of(
                 "download.default_directory", tempDir.toFile().getAbsolutePath(),
                 "download.prompt_for_download", false,
                 "safebrowsing.enabled", true
-        ));
+        );
+        options.setExperimentalOption("prefs", chromePrefs);
+        log.trace("ChromeOptions prepared with prefs: {}", chromePrefs);
 
         WebDriver driver = new ChromeDriver(options);
+        log.trace("ChromeDriver started");
+
         try {
             WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(20));
+            log.trace("WebDriverWait created with timeout: {} seconds", 20);
 
+            long overallStartNanos = System.nanoTime();
+
+            log.debug("Step 1/4: Logging in");
             login(driver, wait);
-            Thread.sleep(5000);
+            traceSleep(5000, "after login to allow page load");
 
+            log.debug("Step 2/4: Requesting monthly export for {}", yearMonth);
             requestMonthlyExport(driver, wait, yearMonth);
-            Thread.sleep(2000);
+            traceSleep(2000, "after export request");
 
-            if (!waitUntilExportCompleted(driver, wait, Duration.ofMinutes(3))) {
+            log.debug("Step 3/4: Waiting for export to complete");
+            boolean completed = waitUntilExportCompleted(driver, wait, Duration.ofMinutes(3));
+            if (!completed) {
                 log.warn("Timed out waiting for export to complete");
                 return Optional.empty();
             }
 
+            log.debug("Step 4/4: Downloading the exported report");
             By FIRST_DOWNLOAD_ICON = By.cssSelector("#container > div > div.base-box > div.body > div > div.arco-table.arco-table-size-large.arco-table-border.arco-table-hover.arco-table-type-selection > div > div > div > table > tbody > tr:nth-child(1) > td:nth-child(8) > span > span > i.iconfont.icon-xiazai.success");
+            log.trace("Waiting for first download icon to be clickable: {}", FIRST_DOWNLOAD_ICON);
             wait.until(ExpectedConditions.elementToBeClickable(FIRST_DOWNLOAD_ICON)).click();
-//
+            log.debug("Clicked first download icon to trigger file download");
+
             Path downloaded = waitForLatestDownload(tempDir, "Plant Reports", Duration.ofSeconds(30)).orElse(null);
             if (downloaded == null) {
                 log.warn("No exported file found in {}", tempDir);
                 return Optional.empty();
             }
+            log.debug("Latest downloaded file detected: {}", downloaded.getFileName());
 
             List<StatisticsEntry> entries = parseExcel(downloaded);
             log.debug("Scraped {} entries for {}", entries.size(), yearMonth);
+
+            long overallElapsedMs = Duration.ofNanos(System.nanoTime() - overallStartNanos).toMillis();
+            log.info("Solax scraping completed in {} ms for {}", overallElapsedMs, yearMonth);
 
             return Optional.of(entries);
         } catch (Exception e) {
@@ -118,38 +142,49 @@ public class SolaxScraper {
             return Optional.empty();
         } finally {
             try {
+                log.trace("Quitting WebDriver");
                 driver.quit();
             } catch (Exception ignore) {
+                log.trace("Ignoring exception during WebDriver quit");
             }
         }
     }
 
     private void login(WebDriver driver, WebDriverWait wait) {
+        log.trace("Login: navigating to portal URL");
         navigate(driver, portalUrl, wait);
 
         By USERNAME_INPUT = By.xpath("//*[@id=\"app\"]/div/div[2]/div[3]/div/div[3]/span[1]/input");
+        By PASSWORD_INPUT = By.xpath("//*[@id=\"app\"]/div/div[2]/div[3]/div/div[4]/span/input");
+        By AGREE_CHECKBOX = By.xpath("//*[@id=\"agreeMent\"]/span[1]");
+        By LOGIN_BUTTON = By.xpath("//*[@id=\"app\"]/div/div[2]/div[3]/div/div[6]");
+
+        log.trace("Waiting for username input: {}", USERNAME_INPUT);
         wait.until(ExpectedConditions.presenceOfElementLocated(USERNAME_INPUT)).sendKeys(username);
 
-        By PASSWORD_INPUT = By.xpath("//*[@id=\"app\"]/div/div[2]/div[3]/div/div[4]/span/input");
+        log.trace("Waiting for password input: {}", PASSWORD_INPUT);
         wait.until(ExpectedConditions.presenceOfElementLocated(PASSWORD_INPUT)).sendKeys(password);
 
-        By AGREE_CHECKBOX = By.xpath("//*[@id=\"agreeMent\"]/span[1]");
+        log.trace("Clicking agree checkbox: {}", AGREE_CHECKBOX);
         wait.until(ExpectedConditions.elementToBeClickable(AGREE_CHECKBOX)).click();
 
-        By LOGIN_BUTTON = By.xpath("//*[@id=\"app\"]/div/div[2]/div[3]/div/div[6]");
+        log.trace("Clicking login button: {}", LOGIN_BUTTON);
         wait.until(ExpectedConditions.elementToBeClickable(LOGIN_BUTTON)).click();
     }
 
     private void requestMonthlyExport(WebDriver driver, WebDriverWait wait, YearMonth yearMonth) throws InterruptedException {
+        log.trace("Navigating to report URL for export");
         navigate(driver, reportUrl, wait);
 
         By ADVANCED_EXPORT_BUTTON = By.xpath("//*[@id=\"container\"]/div[2]/div/div/div[1]/div[2]/button[2]");
+        log.trace("Waiting for advanced export button: {}", ADVANCED_EXPORT_BUTTON);
         wait.until(ExpectedConditions.elementToBeClickable(ADVANCED_EXPORT_BUTTON)).click();
-        Thread.sleep(250);
+        traceSleep(250, "after opening advanced export dialog");
 
         By DATE_INPUT = By.xpath("//*[@id=\"time\"]/div/div/div/div[1]/input");
+        log.trace("Waiting for date input: {}", DATE_INPUT);
         wait.until(ExpectedConditions.elementToBeClickable(DATE_INPUT)).click();
-        Thread.sleep(1000);
+        traceSleep(1000, "allow date picker to render");
 
         By PREV_MONTH_BTN = By.cssSelector("body > div:nth-child(15) > div > div > div > div > div.arco-picker-range > div > div:nth-child(1) > div > div.arco-picker-header > div:nth-child(2)");
         By YEAR_TEXT = By.cssSelector("body > div:nth-child(15) > div > div > div > div > div.arco-picker-range > div > div:nth-child(1) > div > div.arco-picker-header > div.arco-picker-header-title > span:first-child");
@@ -158,110 +193,142 @@ public class SolaxScraper {
         WebElement yearText = wait.until(ExpectedConditions.presenceOfElementLocated(YEAR_TEXT));
         WebElement monthText = wait.until(ExpectedConditions.presenceOfElementLocated(MONTH_TEXT));
         String monthTwoDigits = "%02d".formatted(yearMonth.getMonthValue());
-        int guard = 0; // guard prevents infinite loop
+        int safetyGuard = 0;
+
+        log.trace("Target month/year: {}/{}", monthTwoDigits, yearMonth.getYear());
 
         // Move calendar to desired month
-        while ((!monthText.getText().equalsIgnoreCase(monthTwoDigits) || !yearText.getText().equalsIgnoreCase(String.valueOf(yearMonth.getYear()))) && guard++ < 24) {
-            log.trace("Current calendar month/year: {}/{}. Target: {}/{}", monthText.getText(), yearText.getText(), monthTwoDigits, yearMonth.getYear());
+        while ((!monthText.getText().equalsIgnoreCase(monthTwoDigits) || !yearText.getText().equalsIgnoreCase(String.valueOf(yearMonth.getYear()))) && safetyGuard++ < 24) {
+            log.trace("Calendar currently at month/year: {}/{}. Clicking previous month.", monthText.getText(), yearText.getText());
             wait.until(ExpectedConditions.elementToBeClickable(PREV_MONTH_BTN)).click();
-
-            // Let calendar re-render
-            Thread.sleep(250);
+            traceSleep(250, "after calendar month change");
             yearText = wait.until(ExpectedConditions.presenceOfElementLocated(YEAR_TEXT));
             monthText = wait.until(ExpectedConditions.presenceOfElementLocated(MONTH_TEXT));
         }
 
-        // Select first and last visible day cells
+        if (safetyGuard >= 24) {
+            log.warn("Safety guard hit while selecting month; calendar might not be responding");
+        } else {
+            log.trace("Calendar positioned at target month/year: {}/{}", monthTwoDigits, yearMonth.getYear());
+        }
+
         By CALENDAR_GRID = By.cssSelector("body > div:nth-child(15) > div > div > div > div > div.arco-picker-range > div > div:nth-child(1) > div > div.arco-picker-body");
         WebElement grid = wait.until(ExpectedConditions.visibilityOfElementLocated(CALENDAR_GRID));
-
         List<WebElement> cells = grid.findElements(By.className("arco-picker-cell-in-view"));
+
+        log.trace("Found {} in-view calendar cells before filtering disabled", cells.size());
+
         cells.removeIf(cell -> {
             String classAttr = cell.getAttribute("class");
             return classAttr != null && classAttr.contains("arco-picker-cell-disabled");
         });
+        log.trace("Remaining {} selectable cells after filtering disabled", cells.size());
 
         if (cells.isEmpty()) {
             throw new IllegalStateException("Calendar grid has no in-view cells");
         }
 
+        log.trace("Selecting first and last day cells");
         cells.getFirst().findElement(By.className("arco-picker-date")).click();
         cells.getLast().findElement(By.className("arco-picker-date")).click();
-        Thread.sleep(1000);
+        traceSleep(1000, "after selecting date range");
 
-        By EXPORT_CONFIRM = By.xpath("/html/body/div[9]/div[2]/div[3]/button[2]");
+        By EXPORT_CONFIRM = By.xpath("/html/body/div[8]/div[2]/div[3]/button[2]");
+        log.trace("Clicking export confirm button: {}", EXPORT_CONFIRM);
         wait.until(ExpectedConditions.elementToBeClickable(EXPORT_CONFIRM)).click();
-        Thread.sleep(1000);
+        traceSleep(1000, "after export confirmation");
     }
 
     private boolean waitUntilExportCompleted(WebDriver driver, WebDriverWait wait, Duration timeout) throws InterruptedException {
+        log.trace("Navigating to exported data URL to poll status");
         navigate(driver, exportedDataUrl, wait);
 
         driver.navigate().refresh();
-        Thread.sleep(1000);
+        traceSleep(1000, "after initial refresh on export page");
 
-        long deadline = System.nanoTime() + timeout.toNanos();
+        long deadlineNanos = System.nanoTime() + timeout.toNanos();
+        long iteration = 0L;
         By EXPORT_STATUS_CELL = By.cssSelector("#container > div > div.base-box > div.body > div > div.arco-table.arco-table-size-large.arco-table-border.arco-table-hover.arco-table-type-selection > div > div > div > table > tbody > tr:nth-child(1) > td:nth-child(7) > span > span > span");
 
-        while (System.nanoTime() < deadline) {
+        while (System.nanoTime() < deadlineNanos) {
+            iteration++;
             TimeUnit.SECONDS.sleep(1); // Give the page time to update
 
             try {
-                String status = driver.findElement(EXPORT_STATUS_CELL).getText();
-                log.debug("Current export status: {}", status);
+                String statusText = driver.findElement(EXPORT_STATUS_CELL).getText();
+                log.trace("Poll {}: current export status text = '{}'", iteration, statusText);
 
-                if ("Export completed".equalsIgnoreCase(status)) {
+                if ("Export completed".equalsIgnoreCase(statusText)) {
+                    log.debug("Export is completed after {} polls", iteration);
                     return true;
                 }
-            } catch (Exception ignored) {
+            } catch (Exception ex) {
+                log.trace("Poll {}: unable to read export status element ({}). Will retry.", iteration, ex.getMessage());
             }
 
             TimeUnit.SECONDS.sleep(5);
+            log.trace("Refreshing export page (poll {}) to get latest status", iteration);
             driver.navigate().refresh();
         }
 
+        log.warn("Export did not complete within timeout of {} seconds", timeout.toSeconds());
         return false;
     }
 
     private Optional<Path> waitForLatestDownload(Path dir, String prefix, Duration timeout) {
-        long deadline = System.nanoTime() + timeout.toNanos();
-        Path best = null;
+        log.trace("Waiting for latest download in directory '{}' with prefix '{}' (timeout {}s)", dir.toAbsolutePath(), prefix, timeout.toSeconds());
+        long deadlineNanos = System.nanoTime() + timeout.toNanos();
+        Path bestCandidate = null;
         long bestMtime = Long.MIN_VALUE;
 
-        while (System.nanoTime() < deadline) {
+        while (System.nanoTime() < deadlineNanos) {
             try (Stream<Path> stream = Files.list(dir)) {
-                best = stream
+                bestCandidate = stream
                         .filter(p -> p.getFileName().toString().startsWith(prefix))
                         .max(Comparator.comparingLong(p -> p.toFile().lastModified()))
                         .orElse(null);
 
-                if (best != null) {
-                    long mtime = best.toFile().lastModified();
+                if (bestCandidate != null) {
+                    long mtime = bestCandidate.toFile().lastModified();
+                    long sizeBytes = bestCandidate.toFile().length();
+
+                    log.trace("Current best download candidate: name='{}', mtime={}, size={}B", bestCandidate.getFileName(), mtime, sizeBytes);
 
                     if (mtime > bestMtime) {
                         bestMtime = mtime;
 
-                        // Heuristic: if file extension is .xlsx and size > 0, assume done
-                        if (best.toString().toLowerCase().endsWith(".xlsx") && best.toFile().length() > 0) {
-                            return Optional.of(best);
+                        if (bestCandidate.toString().toLowerCase().endsWith(".xlsx") && sizeBytes > 0) {
+                            log.debug("Detected completed .xlsx download: {}", bestCandidate.getFileName());
+                            return Optional.of(bestCandidate);
                         }
                     }
+                } else {
+                    log.trace("No files currently matching prefix '{}' in {}", prefix, dir);
                 }
-            } catch (IOException ignore) {
+            } catch (IOException ioException) {
+                log.trace("IOException while listing downloads: {}", ioException.getMessage());
             }
 
             try {
                 TimeUnit.SECONDS.sleep(1);
-            } catch (InterruptedException ie) {
+            } catch (InterruptedException interruptedException) {
+                log.error("Interrupted while waiting for download: {}", interruptedException.getMessage(), interruptedException);
                 Thread.currentThread().interrupt();
                 break;
             }
         }
 
-        return Optional.ofNullable(best);
+        if (bestCandidate != null) {
+            log.debug("Returning last seen candidate after timeout: {}", bestCandidate.getFileName());
+        } else {
+            log.debug("No download candidate found before timeout");
+        }
+
+        return Optional.ofNullable(bestCandidate);
     }
 
     private List<StatisticsEntry> parseExcel(Path path) {
+        log.debug("Parsing Excel file: {}", path.getFileName());
         List<StatisticsEntry> entries = new ArrayList<>();
         DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -274,38 +341,57 @@ public class SolaxScraper {
 
             for (Row row : sheet) {
                 rowIndex++;
-                if (rowIndex < 3) continue; // skip header + sub-header
+                if (rowIndex < 3) {
+                    if (log.isTraceEnabled()) {
+                        log.trace("Skipping header row {}", rowIndex);
+                    }
 
-                // Column indexes based on original code (1-based in description):
-                // 1: datetime, 2: yield kWh, 4: export kWh, 5: consumption kWh, 6: import kWh
-                LocalDateTime ts = LocalDateTime.parse(row.getCell(1).getStringCellValue(), timeFormatter);
+                    continue; // skip header + sub-header
+                }
 
-                // skip 00:00:00 rows
-                if (ts.toLocalTime().equals(LocalTime.MIDNIGHT)) {
-                    log.warn("Skipping midnight entry at row {} - {}", rowIndex, row.getCell(1).getStringCellValue());
+                String tsString = row.getCell(1).getStringCellValue();
+                LocalDateTime timestamp = LocalDateTime.parse(tsString, timeFormatter);
+
+                if (timestamp.toLocalTime().equals(LocalTime.MIDNIGHT)) {
+                    log.warn("Skipping midnight entry at row {} - {}", rowIndex, tsString);
                     continue;
                 }
 
-                // Reset previous entry for the next day
-                if (previousDate != null && previousDate.getDayOfMonth() != ts.getDayOfMonth()) {
+                if (previousDate != null && previousDate.getDayOfMonth() != timestamp.getDayOfMonth()) {
+                    if (log.isTraceEnabled()) {
+                        log.trace("Day changed {} -> {}, resetting previousEntry", previousDate, timestamp);
+                    }
+
                     previousEntry = null;
                 }
-                previousDate = ts;
+                previousDate = timestamp;
 
                 double yieldMWh = processNumericCell(row.getCell(2)) / 1000d;
                 double exportMWh = processNumericCell(row.getCell(4)) / 1000d;
                 double consumptionMWh = processNumericCell(row.getCell(5)) / 1000d;
                 double importMWh = processNumericCell(row.getCell(6)) / 1000d;
 
-                StatisticsEntry current = new StatisticsEntry(ts, yieldMWh, exportMWh, consumptionMWh, importMWh);
+                if (log.isTraceEnabled()) {
+                    log.trace(
+                            "Row {} parsed cumulative: ts={}, yieldMWh={}, exportMWh={}, consumptionMWh={}, importMWh={}",
+                            rowIndex, timestamp, yieldMWh, exportMWh, consumptionMWh, importMWh
+                    );
+                }
+
+                StatisticsEntry current = new StatisticsEntry(timestamp, yieldMWh, exportMWh, consumptionMWh, importMWh);
                 StatisticsEntry currentCopy = current.clone();
 
-                // Each entry is cumulative, subtract previous entry values
                 if (previousEntry != null) {
                     current.subtract(previousEntry);
+                    if (log.isTraceEnabled()) {
+                        log.trace(
+                                "Row {} delta after subtracting previous: yieldMWh={}, exportMWh={}, consumptionMWh={}, importMWh={}",
+                                rowIndex, current.getYieldMWh(), current.getExportMWh(), current.getConsumptionMWh(), current.getImportMWh()
+                        );
+                    }
                 }
-                previousEntry = currentCopy;
 
+                previousEntry = currentCopy;
                 entries.add(current);
             }
         } catch (Exception e) {
@@ -317,43 +403,118 @@ public class SolaxScraper {
     }
 
     private double processNumericCell(Cell cell) {
-        if (cell == null) return 0d;
-        DataFormatter f = new DataFormatter();
+        if (cell == null) {
+            return 0d;
+        }
+        DataFormatter formatter = new DataFormatter();
 
         try {
             if (cell.getCellType() == CellType.NUMERIC) {
-                return cell.getNumericCellValue();
+                double numericValue = cell.getNumericCellValue();
+                if (log.isTraceEnabled()) {
+                    log.trace("Numeric cell value: {}", numericValue);
+                }
+                return numericValue;
             }
 
-            String s = f.formatCellValue(cell);
-            if (s == null || s.isBlank()) return 0d;
+            String stringValue = formatter.formatCellValue(cell);
+            if (stringValue == null || stringValue.isBlank()) {
+                if (log.isTraceEnabled()) {
+                    log.trace("Blank cell treated as 0");
+                }
+                return 0d;
+            }
 
-            return Double.parseDouble(s.replace(',', '.'));
+            double parsed = Double.parseDouble(stringValue.replace(',', '.'));
+            if (log.isTraceEnabled()) {
+                log.trace("Parsed string cell '{}' -> {}", stringValue, parsed);
+            }
+            return parsed;
         } catch (Exception e) {
-            log.warn("Non-numeric cell value '{}', defaulting to 0", f.formatCellValue(cell));
+            log.warn("Non-numeric cell value '{}', defaulting to 0", formatter.formatCellValue(cell));
             return 0d;
         }
     }
 
     private void navigate(WebDriver driver, String url, WebDriverWait wait) {
+        long startNanos = System.nanoTime();
+        String expectedPath = getLastFragmentPathSegment(url).orElse(url);
+        log.trace("Navigate: GET {} (expectedPath='{}')", url, expectedPath);
         driver.get(url);
-        wait.until(ExpectedConditions.urlToBe(url));
 
         try {
-            Thread.sleep(2000); // Wait for the page to load
+            wait.until(webDriver -> {
+                String currentUrl = webDriver.getCurrentUrl();
+                boolean matches = currentUrl != null && currentUrl.contains(expectedPath);
+
+                if (log.isTraceEnabled()) {
+                    log.trace("Waiting for URL to contain path '{}': current='{}' match={}", expectedPath, currentUrl, matches);
+                }
+
+                return matches;
+            });
+
+            long elapsedMs = Duration.ofNanos(System.nanoTime() - startNanos).toMillis();
+            log.debug("Navigation satisfied (path match) in {} ms. Landed at URL: {}", elapsedMs, driver.getCurrentUrl());
+        } catch (Exception e) {
+            log.warn("Navigation wait failed for URL '{}' with path '{}': {}", url, expectedPath, e.getMessage());
+        }
+
+        try {
+            traceSleep(2000, "post-navigation settling");
         } catch (InterruptedException e) {
             log.error("Interrupted while waiting for page to load: {}", e.getMessage(), e);
+            Thread.currentThread().interrupt();
         }
+    }
+
+    public static Optional<String> getLastFragmentPathSegment(String urlString) {
+        URI uri = URI.create(urlString);
+        String fragment = uri.getFragment();                // e.g. "/plant-list" or "/plant-list?id=42"
+        if (fragment == null || fragment.isBlank()) {
+            return Optional.empty();
+        }
+
+        // Drop any query part inside the fragment: "/plant-list?id=42" -> "/plant-list"
+        int queryIndex = fragment.indexOf('?');
+        String fragmentPathOnly = queryIndex >= 0 ? fragment.substring(0, queryIndex) : fragment;
+
+        // Split on "/" and walk from the end to find the last non-empty segment
+        String[] segments = fragmentPathOnly.split("/+");
+        for (int i = segments.length - 1; i >= 0; i--) {
+            String segment = segments[i];
+
+            if (segment != null && !segment.isBlank()) {
+                String decoded = URLDecoder.decode(segment, StandardCharsets.UTF_8);
+                return Optional.of(decoded);
+            }
+        }
+
+        return Optional.empty();
     }
 
     private Optional<Path> createTempDownloadDir() {
         try {
             Path temp = Files.createTempDirectory("solax_downloads");
             temp.toFile().deleteOnExit();
+            log.trace("Created temp download directory: {}", temp.toAbsolutePath());
             return Optional.of(temp);
         } catch (IOException e) {
             log.error("Failed to create temporary directory for downloads: {}", e.getMessage(), e);
             return Optional.empty();
+        }
+    }
+
+    /**
+     * Utility to log sleeps in trace level so long waits are visible in the logs.
+     */
+    private void traceSleep(long millis, String reason) throws InterruptedException {
+        if (log.isTraceEnabled()) {
+            log.trace("Sleeping {} ms ({})", millis, reason);
+        }
+        Thread.sleep(millis);
+        if (log.isTraceEnabled()) {
+            log.trace("Woke up after {} ms ({})", millis, reason);
         }
     }
 }

@@ -18,14 +18,14 @@ public class OverallSummary {
         this.hourly = hourly;
 
         List<SummaryRow> daily = SummaryRow.aggregate(this.hourly, SummaryRow.Granularity.DAY);
-        this.daily = preprocessExportSelf(daily);
+        this.daily = preprocessExportSelf(daily, false);
 
         // Calculate self export revenue
         SummaryRow total = SummaryRow.aggregate(daily, SummaryRow.Granularity.MONTH).getFirst();
-        this.total = preprocessExportSelf(List.of(total)).getFirst();
+        this.total = preprocessExportSelf(List.of(total), true).getFirst();
     }
 
-    public static List<SummaryRow> preprocessExportSelf(List<SummaryRow> rows) {
+    public static List<SummaryRow> preprocessExportSelf(List<SummaryRow> rows, boolean overflowCharge) {
         List<SummaryRow> closedRows = new ArrayList<>(rows); // Make mutable copy
 
         closedRows.forEach(row -> {
@@ -40,7 +40,7 @@ public class OverallSummary {
                 row.setImportCostSelf(row.getImportSelf() * 2.1);
             }
 
-            if (row.getExportSelf() < row.getImportSelf()) {
+            if (overflowCharge && row.getExportSelf() < row.getImportSelf()) {
                 double overflow = row.getImportSelf() - row.getExportSelf();
                 row.setImportCostSelf(row.getImportCostSelf() + (overflow * 4.5));
             }

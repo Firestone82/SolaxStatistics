@@ -309,7 +309,12 @@ public class SummaryService {
 
     @EventListener(ApplicationReadyEvent.class)
     public void test() {
-        YearMonth start = YearMonth.of(2025, 8);
-        processSummary(start);
+        YearMonth start = YearMonth.of(2025, 9);
+        YearMonth end = YearMonth.of(2025, 9);
+
+        while (!start.isAfter(end)) {
+            processSummary(start);
+            start = start.plusMonths(1);
+        }
     }
 }
