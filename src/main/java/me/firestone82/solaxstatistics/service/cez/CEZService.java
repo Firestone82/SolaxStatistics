@@ -30,19 +30,20 @@ public class CEZService {
 
         this.cezScraper = cezScraper;
         this.dataDir = FileUtils.ensureFolderCreated(storagePath, "cez");
+        FileUtils.moveMonthFilesToYearFolders(dataDir);
 
         log.info("Initialized CEZ service. Data directory: {}", dataDir.getAbsolutePath());
     }
 
-    public Optional<Map<LocalDateTime, EnergyEntry>> getConsumptionHourly(YearMonth yearMonth) {
-        return getConsumption(yearMonth).map(EnergyEntry::aggregateHourly);
+    public Optional<Map<LocalDateTime, EnergyEntry>> getConsumptionQuarterHourly(YearMonth yearMonth) {
+        return getConsumption(yearMonth).map(EnergyEntry::aggregateQuarterHourly);
     }
 
     public Optional<List<EnergyEntry>> getConsumption(YearMonth yearMonth) {
         log.debug("Retrieving CEZ electricity consumption data for {}", yearMonth);
 
         String fileName = String.format("electricity_%s.csv", yearMonth);
-        File file = new File(dataDir, fileName);
+        File file = FileUtils.getMonthFile(dataDir, yearMonth, fileName);
 
         if (file.exists()) {
             log.trace("Found cached file {}, loading data from it", file.getPath());
@@ -76,7 +77,8 @@ public class CEZService {
     private List<EnergyEntry> generateEmptyEntries(YearMonth yearMonth) {
         List<EnergyEntry> entries = new ArrayList<>();
         LocalDateTime current = yearMonth.atDay(1).atStartOfDay().withMinute(15);
-        LocalDateTime end = yearMonth.atEndOfMonth().atTime(23, 45);
+        // Entries are stamped with the END of their quarter, so the last one is the next month's midnight
+        LocalDateTime end = yearMonth.plusMonths(1).atDay(1).atStartOfDay();
 
         while (!current.isAfter(end)) {
             entries.add(new EnergyEntry(current, 0.0, 0.0));

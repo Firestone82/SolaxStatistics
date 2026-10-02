@@ -1,21 +1,24 @@
 solax:
   url:
-    portal: "https://global.solaxcloud.com/user-center/"
-    report: "https://global.solaxcloud.com/green/#/plant-list"
-    exportedData: "https://global.solaxcloud.com/green/#/task-list"
+    # Login page, the application URL (e.g. https://global.solaxcloud.com/blue/) is taken from the redirect after login
+    portal: "https://www.solaxcloud.com/user-center/"
+  # Run Chrome without a window
+  headless: false
   credentials:
     username: "YOUR_USERNAME"
     password: "YOUR_PASSWORD"
 
-# API for electricity prices provided to grid
-# - Documentation: https://spotovaelektrina.cz/api
+# Spot electricity prices (OTE), scraped from the quarter-hour day pages {baseUrl}/denni-ceny/{yyyy-MM-dd}
 ote:
   baseUrl: "https://spotovaelektrina.cz"
 
 cez:
   url:
-    portal: "https://dip.cezdistribuce.cz/irj/portal/"
+    # PND portal, redirects to the ČEZ (CAS) login
+    portal: "https://pnd.cezdistribuce.cz/cezpnd2/external/dashboard/view"
     export: "https://pnd.cezdistribuce.cz/cezpnd2/external/data/export"
+  # Run Chrome without a window
+  headless: true
   meterId: 123456789
   credentials:
     username: "YOUR_USERNAME"
@@ -33,9 +36,23 @@ data:
   # Path to the directory where the data will be stored
   directory: "data"
 
+summary:
+  # Months processed on startup (yyyy-MM, e.g. "2025-09"). Empty "from" processes the previous month,
+  # empty "to" processes only the "from" month. Can also be passed as arguments: --summary.from=2025-09
+  from: ""
+  to: ""
+
 email:
+  # Send the summary email with the Excel file attached after processing a month
+  enabled: false
   sender: "your-sender@domain.com"
-  recipients: "your-reciepent@domain.com"
+  # Who gets the summary and in which template from resources/templates:
+  # energy-report.html (English) or energy-report-cs.html (Czech)
+  recipients:
+    - address: "your-recipient@domain.com"
+      template: "energy-report.html"
+    - address: "your-czech-recipient@domain.com"
+      template: "energy-report-cs.html"
 
 spring:
   mail:

@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="cs">
 <head>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-    <title>FVE - Monthly report of {{date}}</title>
+    <title>FVE - Měsíční přehled za {{date}}</title>
     <style>
         :root {
             color-scheme: light dark;
@@ -269,12 +269,12 @@
     </style>
 </head>
 <body>
-<div class="wrap" role="region" aria-label="Energy Summary">
+<div class="wrap" role="region" aria-label="Přehled energie">
     <div class="header">
         <table class="layout" role="presentation" cellpadding="0" cellspacing="0">
             <tr>
-                <td valign="middle"><h1 class="title">Energy Summary</h1></td>
-                <td align="right" valign="middle"><span class="chip" aria-label="Report date">{{date}}</span></td>
+                <td valign="middle"><h1 class="title">Přehled energie</h1></td>
+                <td align="right" valign="middle"><span class="chip" aria-label="Období přehledu">{{date}}</span></td>
             </tr>
         </table>
     </div>
@@ -284,13 +284,13 @@
             <tr>
                 <td class="cell-left" width="50%" valign="top" role="listitem">
                     <div class="card">
-                        <div class="label">Consumption</div>
+                        <div class="label">Spotřeba</div>
                         <div class="value">{{consumption}} <span class="muted">kWh</span></div>
                     </div>
                 </td>
                 <td class="cell-right" width="50%" valign="top" role="listitem">
                     <div class="card">
-                        <div class="label">Yield</div>
+                        <div class="label">Výroba</div>
                         <div class="value">{{yield}} <span class="muted">kWh</span></div>
                     </div>
                 </td>
@@ -298,27 +298,27 @@
             <tr>
                 <td class="cell-left" width="50%" valign="top" role="listitem">
                     <div class="card">
-                        <div class="label">Import Cost</div>
-                        <div class="value">{{totalImportCost}} <span class="muted">CZK</span></div>
+                        <div class="label">Náklady na odběr</div>
+                        <div class="value">{{totalImportCost}} <span class="muted">Kč</span></div>
                     </div>
                 </td>
                 <td class="cell-right" width="50%" valign="top" role="listitem">
                     <div class="card">
-                        <div class="label">Export Revenue</div>
-                        <div class="value">{{totalExportRevenue}} <span class="muted">CZK</span></div>
+                        <div class="label">Výnosy z dodávky</div>
+                        <div class="value">{{totalExportRevenue}} <span class="muted">Kč</span></div>
                     </div>
                 </td>
             </tr>
             <tr class="row-last">
                 <td class="cell-left" width="50%" valign="top" role="listitem">
                     <div class="card">
-                        <div class="label">Savings</div>
-                        <div class="value">{{savings}} <span class="muted">CZK</span></div>
+                        <div class="label">Úspora</div>
+                        <div class="value">{{savings}} <span class="muted">Kč</span></div>
                     </div>
                 </td>
                 <td class="cell-right" width="50%" valign="top" role="listitem">
                     <div class="card">
-                        <div class="label">Self-use percentage</div>
+                        <div class="label">Podíl vlastní spotřeby</div>
                         <div class="value">{{selfUsePercentage}}<span class="muted">%</span></div>
                     </div>
                 </td>
@@ -330,24 +330,24 @@
         <table class="layout columns" role="presentation" cellpadding="0" cellspacing="0">
             <tr class="row-last">
                 <td class="cell-left" width="50%" valign="top">
-                    <div class="label" style="margin-bottom:6px;">Electricity</div>
-                    <div class="table-wrap" role="region" aria-label="Import and export table" tabindex="0">
+                    <div class="label" style="margin-bottom:6px;">Elektřina</div>
+                    <div class="table-wrap" role="region" aria-label="Tabulka odběru a dodávky" tabindex="0">
                         <table class="table">
                             <thead>
                             <tr>
-                                <th scope="col">Source</th>
-                                <th scope="col">Import</th>
-                                <th scope="col">Export</th>
+                                <th scope="col">Zdroj</th>
+                                <th scope="col">Odběr</th>
+                                <th scope="col">Dodávka</th>
                             </tr>
                             </thead>
                             <tbody>
                             <tr>
-                                <td>Grid</td>
+                                <td>Síť</td>
                                 <td class="mono">{{importGrid}} kWh</td>
                                 <td class="mono">{{exportGrid}} kWh</td>
                             </tr>
                             <tr>
-                                <td>Self</td>
+                                <td>Vlastní</td>
                                 <td class="mono">{{importSelf}} kWh</td>
                                 <td class="mono">{{exportSelf}} kWh</td>
                             </tr>
@@ -361,31 +361,31 @@
                     </div>
                 </td>
                 <td class="cell-right" width="50%" valign="top">
-                    <div class="label" style="margin-bottom:6px;">Financials</div>
-                    <div class="table-wrap" role="region" aria-label="Import and export table" tabindex="0">
+                    <div class="label" style="margin-bottom:6px;">Finance</div>
+                    <div class="table-wrap" role="region" aria-label="Tabulka odběru a dodávky" tabindex="0">
                         <table class="table">
                             <thead>
                             <tr>
-                                <th scope="col">Source</th>
-                                <th scope="col">Import</th>
-                                <th scope="col">Export</th>
+                                <th scope="col">Zdroj</th>
+                                <th scope="col">Odběr</th>
+                                <th scope="col">Dodávka</th>
                             </tr>
                             </thead>
                             <tbody>
                             <tr>
-                                <td>Grid</td>
-                                <td class="mono">{{importCostGrid}} CZK</td>
-                                <td class="mono">{{exportRevenueGrid}} CZK</td>
+                                <td>Síť</td>
+                                <td class="mono">{{importCostGrid}} Kč</td>
+                                <td class="mono">{{exportRevenueGrid}} Kč</td>
                             </tr>
                             <tr>
-                                <td>Self</td>
-                                <td class="mono">{{importCostSelf}} CZK</td>
-                                <td class="mono">{{exportRevenueSelf}} CZK</td>
+                                <td>Vlastní</td>
+                                <td class="mono">{{importCostSelf}} Kč</td>
+                                <td class="mono">{{exportRevenueSelf}} Kč</td>
                             </tr>
                             <tr>
                                 <td></td>
-                                <td class="mono"><strong>{{totalImportCost}} CZK</strong></td>
-                                <td class="mono"><strong>{{totalExportRevenue}} CZK</strong></td>
+                                <td class="mono"><strong>{{totalImportCost}} Kč</strong></td>
+                                <td class="mono"><strong>{{totalExportRevenue}} Kč</strong></td>
                             </tr>
                             </tbody>
                         </table>
@@ -396,16 +396,16 @@
     </div>
 
     <div class="section section-last">
-        <div class="label" style="margin-bottom:6px;">Best export days</div>
-        <div class="table-wrap" role="region" aria-label="Best export days table" tabindex="0">
+        <div class="label" style="margin-bottom:6px;">Nejlepší dny dodávky</div>
+        <div class="table-wrap" role="region" aria-label="Tabulka nejlepších dnů dodávky" tabindex="0">
             <table class="table">
                 <thead>
                 <tr>
                     <th scope="col">#</th>
-                    <th scope="col">Day</th>
-                    <th scope="col">Export (Grid)</th>
-                    <th scope="col">Revenue (Grid)</th>
-                    <th scope="col">Avg. price</th>
+                    <th scope="col">Den</th>
+                    <th scope="col">Dodávka (síť)</th>
+                    <th scope="col">Výnos (síť)</th>
+                    <th scope="col">Prům. cena</th>
                 </tr>
                 </thead>
                 <tbody>
@@ -414,13 +414,13 @@
                     <td>{{rank}}</td>
                     <td>{{day}}</td>
                     <td class="mono">{{export}} kWh</td>
-                    <td class="mono">{{revenue}} CZK</td>
-                    <td class="mono">{{price}} CZK/kWh</td>
+                    <td class="mono">{{revenue}} Kč</td>
+                    <td class="mono">{{price}} Kč/kWh</td>
                 </tr>
                 <!--{{/bestExportDays}}-->
                 <!--{{^bestExportDays}}-->
                 <tr>
-                    <td colspan="5" class="muted">No energy was exported to the grid this month.</td>
+                    <td colspan="5" class="muted">Tento měsíc nebyla do sítě dodána žádná energie.</td>
                 </tr>
                 <!--{{/bestExportDays}}-->
                 </tbody>
@@ -428,7 +428,7 @@
         </div>
     </div>
 
-    <div class="foot">&copy; 2025-{{year}} • Solax Statistics Report</div>
+    <div class="foot">&copy; 2025-{{year}} • Solax Statistics – měsíční přehled</div>
 </div>
 </body>
 </html>

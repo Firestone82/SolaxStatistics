@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
+import me.firestone82.solaxstatistics.utils.TimeUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -28,16 +29,22 @@ public class StatisticsEntry implements Cloneable {
         this.importMWh -= other.importMWh;
     }
 
-    public static Map<LocalDateTime, StatisticsEntry> aggregateHourly(List<StatisticsEntry> data) {
-        return data.stream().collect(Collectors.groupingBy(
-                e -> e.getDateTime().minusMinutes(5).withMinute(0).withSecond(0).withNano(0),
-                Collectors.collectingAndThen(Collectors.toList(), list -> new StatisticsEntry(
-                        list.getFirst().getDateTime().withMinute(0).withSecond(0).withNano(0),
-                        list.stream().mapToDouble(StatisticsEntry::getYieldMWh).sum(),
-                        list.stream().mapToDouble(StatisticsEntry::getExportMWh).sum(),
-                        list.stream().mapToDouble(StatisticsEntry::getConsumptionMWh).sum(),
-                        list.stream().mapToDouble(StatisticsEntry::getImportMWh).sum()
-                ))
+    /**
+     * Groups Solax 5-minute deltas into quarters keyed by the quarter START (Solax stamps the END of each interval).
+     */
+    public static Map<LocalDateTime, StatisticsEntry> aggregateQuarterHourly(List<StatisticsEntry> data) {
+        Map<LocalDateTime, List<StatisticsEntry>> byQuarter = data.stream()
+                .collect(Collectors.groupingBy(e -> TimeUtils.toQuarterStart(e.getDateTime().minusMinutes(5))));
+
+        return byQuarter.entrySet().stream().collect(Collectors.toMap(
+                Map.Entry::getKey,
+                entry -> new StatisticsEntry(
+                        entry.getKey(),
+                        entry.getValue().stream().mapToDouble(StatisticsEntry::getYieldMWh).sum(),
+                        entry.getValue().stream().mapToDouble(StatisticsEntry::getExportMWh).sum(),
+                        entry.getValue().stream().mapToDouble(StatisticsEntry::getConsumptionMWh).sum(),
+                        entry.getValue().stream().mapToDouble(StatisticsEntry::getImportMWh).sum()
+                )
         ));
     }
 

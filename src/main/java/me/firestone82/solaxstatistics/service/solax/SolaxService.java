@@ -28,21 +28,22 @@ public class SolaxService {
         log.info("Initializing Solax service");
 
         this.dataDir = FileUtils.ensureFolderCreated(storagePath, "solax");
+        FileUtils.moveMonthFilesToYearFolders(dataDir);
         this.solaxScraper = solaxScraper;
 //        this.solaxScraper.setDownloadDir(new File(dataDir, "downloads"));
 
         log.info("Initialized Solax service. Data directory: {}", dataDir.getAbsolutePath());
     }
 
-    public Optional<Map<LocalDateTime, StatisticsEntry>> getStatisticsHourly(YearMonth yearMonth) {
-        return getStatistics(yearMonth).map(StatisticsEntry::aggregateHourly);
+    public Optional<Map<LocalDateTime, StatisticsEntry>> getStatisticsQuarterHourly(YearMonth yearMonth) {
+        return getStatistics(yearMonth).map(StatisticsEntry::aggregateQuarterHourly);
     }
 
     public Optional<List<StatisticsEntry>> getStatistics(YearMonth yearMonth) {
         log.debug("Retrieving Solax electricity consumption data for {}", yearMonth);
 
         String fileName = String.format("consumption_%s.csv", yearMonth);
-        File file = new File(dataDir, fileName);
+        File file = FileUtils.getMonthFile(dataDir, yearMonth, fileName);
 
         if (file.exists()) {
             log.trace("Found cached file {}, loading data from it", file.getPath());

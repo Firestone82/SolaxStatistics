@@ -18,7 +18,9 @@ import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.IntStream;
 
 @Slf4j
@@ -52,49 +54,24 @@ public class SummaryExcelExporter {
             "Profit/Loss"
     };
 
+    // XSSF allows at most 64000 cell styles per workbook and a quarterly month alone has ~70000 styled cells,
+    // so every distinct (base style, data format) clone is created once per workbook and shared by its cells
+    private final Map<String, CellStyle> cellStyles = new HashMap<>();
+
     public void exportToExcel(OverallSummary summary, List<SummaryRow> monthlyStatistics, File file) {
         monthlyStatistics.addFirst(summary.getTotal());
-
-        // Yearly statistics
-        List<SummaryRow> yearlyStatistics = SummaryRow.aggregate(monthlyStatistics, SummaryRow.Granularity.YEAR);
-        yearlyStatistics = OverallSummary.preprocessExportSelf(yearlyStatistics, true);
-        Collections.reverse(yearlyStatistics);
+        List<SummaryRow> yearlyStatistics = aggregateYearly(monthlyStatistics);
 
         try (Workbook workbook = new XSSFWorkbook()) {
-            // Styles
-            CellStyle headerStyle = workbook.createCellStyle();
-            Font headerFont = workbook.createFont();
-            headerFont.setBold(true);
-            headerStyle.setFont(headerFont);
-            headerStyle.setBorderBottom(BorderStyle.MEDIUM);
-            headerStyle.setBorderLeft(BorderStyle.MEDIUM);
-            headerStyle.setBorderTop(BorderStyle.MEDIUM);
-            headerStyle.setBorderRight(BorderStyle.MEDIUM);
-            headerStyle.setAlignment(HorizontalAlignment.CENTER);
+            cellStyles.clear(); // Styles are only valid in the workbook that created them
 
-            int hourlyDataSize = summary.getHourly().size();
-            Sheet hourlySheet = workbook.createSheet("Hourly");
-            hourlySheet.createFreezePane(0, 1);
-            writeRows(hourlySheet, summary.getHourly(), headerStyle, "yyyy-mm-dd hh:mm");
-            colorSheet(hourlyDataSize, hourlySheet);
+            CellStyle headerStyle = createHeaderStyle(workbook);
 
-            int dailyDataSize = summary.getDaily().size();
-            Sheet dailySheet = workbook.createSheet("Daily");
-            dailySheet.createFreezePane(0, 1);
-            writeRows(dailySheet, summary.getDaily(), headerStyle, "yyyy-mm-dd");
-            colorSheet(dailyDataSize, dailySheet);
-
-            int monthlyDataSize = monthlyStatistics.size();
-            Sheet monthlySheet = workbook.createSheet("Monthly");
-            monthlySheet.createFreezePane(0, 1);
-            writeRows(monthlySheet, monthlyStatistics, headerStyle, "yyyy-mm");
-            colorSheet(monthlyDataSize, monthlySheet);
-
-            int yearlyDataSize = yearlyStatistics.size();
-            Sheet yearlySheet = workbook.createSheet("Yearly");
-            yearlySheet.createFreezePane(0, 1);
-            writeRows(yearlySheet, yearlyStatistics, headerStyle, "yyyy");
-            colorSheet(yearlyDataSize, yearlySheet);
+            writeSheet(workbook, "Quarterly", summary.getQuarterHourly(), headerStyle, "yyyy-mm-dd hh:mm");
+            writeSheet(workbook, "Hourly", summary.getHourly(), headerStyle, "yyyy-mm-dd hh:mm");
+            writeSheet(workbook, "Daily", summary.getDaily(), headerStyle, "yyyy-mm-dd");
+            writeSheet(workbook, "Monthly", monthlyStatistics, headerStyle, "yyyy-mm");
+            writeSheet(workbook, "Yearly", yearlyStatistics, headerStyle, "yyyy");
 
             try (OutputStream os = Files.newOutputStream(file.toPath())) {
                 workbook.write(os);
@@ -104,15 +81,46 @@ public class SummaryExcelExporter {
         }
     }
 
-    private void colorSheet(int monthlyDataSize, Sheet monthlySheet) {
-        applyColorScaleFormatting(monthlySheet, 3, monthlyDataSize, false);
-        applyColorScaleFormatting(monthlySheet, 7, monthlyDataSize, true);
-        applyColorScaleFormatting(monthlySheet, 10, monthlyDataSize, true);
-        applyColorScaleFormatting(monthlySheet, 14, monthlyDataSize, false);
-        applyColorScaleFormatting(monthlySheet, 17, monthlyDataSize, false);
-        applyColorScaleFormatting(monthlySheet, 21, monthlyDataSize, false);
-        applyColorScaleFormatting(monthlySheet, 23, monthlyDataSize, false);
-        autoSizeAllColumns(monthlySheet);
+    private List<SummaryRow> aggregateYearly(List<SummaryRow> monthlyStatistics) {
+        List<SummaryRow> yearlyStatistics = SummaryRow.aggregate(monthlyStatistics, SummaryRow.Granularity.YEAR);
+        yearlyStatistics = OverallSummary.preprocessExportSelf(yearlyStatistics, true);
+        Collections.reverse(yearlyStatistics);
+
+        return yearlyStatistics;
+    }
+
+    private CellStyle createHeaderStyle(Workbook workbook) {
+        CellStyle headerStyle = workbook.createCellStyle();
+        Font headerFont = workbook.createFont();
+        headerFont.setBold(true);
+        headerStyle.setFont(headerFont);
+        headerStyle.setBorderBottom(BorderStyle.MEDIUM);
+        headerStyle.setBorderLeft(BorderStyle.MEDIUM);
+        headerStyle.setBorderTop(BorderStyle.MEDIUM);
+        headerStyle.setBorderRight(BorderStyle.MEDIUM);
+        headerStyle.setAlignment(HorizontalAlignment.CENTER);
+
+        return headerStyle;
+    }
+
+    private void writeSheet(Workbook workbook, String name, List<SummaryRow> rows, CellStyle headerStyle, String dateFormat) {
+        log.trace("Writing {} rows to sheet {}", rows.size(), name);
+
+        Sheet sheet = workbook.createSheet(name);
+        sheet.createFreezePane(0, 1);
+        writeRows(sheet, rows, headerStyle, dateFormat);
+        colorSheet(rows.size(), sheet);
+    }
+
+    private void colorSheet(int dataSize, Sheet sheet) {
+        applyColorScaleFormatting(sheet, 3, dataSize, false);
+        applyColorScaleFormatting(sheet, 7, dataSize, true);
+        applyColorScaleFormatting(sheet, 10, dataSize, true);
+        applyColorScaleFormatting(sheet, 14, dataSize, false);
+        applyColorScaleFormatting(sheet, 17, dataSize, false);
+        applyColorScaleFormatting(sheet, 21, dataSize, false);
+        applyColorScaleFormatting(sheet, 23, dataSize, false);
+        autoSizeAllColumns(sheet);
     }
 
     private void writeRows(Sheet sheet, List<SummaryRow> rows, CellStyle headerStyle, String dateFormat) {
@@ -188,20 +196,24 @@ public class SummaryExcelExporter {
         }
 
         if (cellStyle != null) {
-            Workbook wb = row.getSheet().getWorkbook();
+            cell.setCellStyle(getCellStyle(row.getSheet().getWorkbook(), cellStyle, dataFormat));
+        }
 
+        return cell;
+    }
+
+    private CellStyle getCellStyle(Workbook wb, CellStyle baseStyle, @Nullable String dataFormat) {
+        return cellStyles.computeIfAbsent(baseStyle.getIndex() + "|" + dataFormat, k -> {
             CellStyle style = wb.createCellStyle();
-            style.cloneStyleFrom(cellStyle);
+            style.cloneStyleFrom(baseStyle);
 
             if (dataFormat != null) {
                 DataFormat format = wb.createDataFormat();
                 style.setDataFormat(format.getFormat(dataFormat));
             }
 
-            cell.setCellStyle(style);
-        }
-
-        return cell;
+            return style;
+        });
     }
 
     private void autoSizeAllColumns(Sheet sheet) {

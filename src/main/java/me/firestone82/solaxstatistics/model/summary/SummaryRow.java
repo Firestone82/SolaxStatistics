@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.Getter;
 import lombok.experimental.Accessors;
+import me.firestone82.solaxstatistics.utils.TimeUtils;
 
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -47,8 +48,9 @@ public class SummaryRow {
      * Flexible aggregator where you provide a classifier that maps each row's date
      * to a normalized bucket key (e.g., truncate to hour/day/month).
      * The resulting aggregated row's 'date' will be the classifier output.
+     * The OTE export price is averaged only when {@code averagePrice} is set, otherwise it is left at 0.
      */
-    public static List<SummaryRow> aggregate(List<SummaryRow> rows, Function<LocalDateTime, LocalDateTime> dateClassifier) {
+    public static List<SummaryRow> aggregate(List<SummaryRow> rows, Function<LocalDateTime, LocalDateTime> dateClassifier, boolean averagePrice) {
         Map<LocalDateTime, List<SummaryRow>> grouped = rows.stream()
                 .collect(Collectors.groupingBy(r -> dateClassifier.apply(r.getDate())));
 
@@ -60,7 +62,7 @@ public class SummaryRow {
                             .date(entry.getKey())
                             .yield(group.stream().mapToDouble(SummaryRow::getYield).sum())
                             .selfUsePercentage(group.stream().mapToDouble(SummaryRow::getSelfUsePercentage).average().orElse(0.0))
-                            .exportPriceGrid(0) // group.stream().mapToDouble(SummaryRow::getExportPriceGrid).average().orElse(0.0))
+                            .exportPriceGrid(averagePrice ? group.stream().mapToDouble(SummaryRow::getExportPriceGrid).average().orElse(0.0) : 0)
                             .importGrid(group.stream().mapToDouble(SummaryRow::getImportGrid).sum())
                             .importSelf(group.stream().mapToDouble(SummaryRow::getImportSelf).sum())
                             .importCostGrid(group.stream().mapToDouble(SummaryRow::getImportCostGrid).sum())
@@ -79,18 +81,21 @@ public class SummaryRow {
     }
 
     public static List<SummaryRow> aggregate(List<SummaryRow> rows, Granularity granularity) {
-        return aggregate(rows, granularity.classifier());
+        return aggregate(rows, granularity.classifier(), granularity.isPriceAveraged());
     }
 
     @Getter
     @AllArgsConstructor
     public enum Granularity {
-        HOUR(dt -> dt.truncatedTo(ChronoUnit.HOURS)),
-        DAY(dt -> dt.toLocalDate().atStartOfDay()),
-        MONTH(dt -> YearMonth.from(dt).atDay(1).atStartOfDay()),
-        YEAR(dt -> dt.toLocalDate().withDayOfYear(1).atStartOfDay());
+        // The hourly OTE price is the mean of its quarters, longer periods show no price
+        QUARTER_HOUR(TimeUtils::toQuarterStart, true),
+        HOUR(dt -> dt.truncatedTo(ChronoUnit.HOURS), true),
+        DAY(dt -> dt.toLocalDate().atStartOfDay(), false),
+        MONTH(dt -> YearMonth.from(dt).atDay(1).atStartOfDay(), false),
+        YEAR(dt -> dt.toLocalDate().withDayOfYear(1).atStartOfDay(), false);
 
         @Accessors(fluent = true)
         private final Function<LocalDateTime, LocalDateTime> classifier;
+        private final boolean priceAveraged;
     }
 }

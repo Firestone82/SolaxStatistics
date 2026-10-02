@@ -1,6 +1,7 @@
-package me.firestone82.solaxstatistics.service.cez;
+package me.firestone82.solaxstatistics.configuration.cez;
 
 import lombok.Data;
+import me.firestone82.solaxstatistics.configuration.Price;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @Data
@@ -8,10 +9,4 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class CEZTariff {
     private Price importPrice;
     private Price exportFee;
-
-    @Data
-    public static class Price {
-        private double eur;
-        private double czk;
-    }
 }

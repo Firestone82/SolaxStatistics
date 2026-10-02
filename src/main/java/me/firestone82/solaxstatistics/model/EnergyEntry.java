@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
+import me.firestone82.solaxstatistics.utils.TimeUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -19,15 +20,22 @@ public class EnergyEntry {
     private double importMWh;
     private double exportMWh;
 
-    public static Map<LocalDateTime, EnergyEntry> aggregateHourly(List<EnergyEntry> data) {
-        return data.stream().collect(Collectors.groupingBy(
-                e -> e.getDateTime().minusMinutes(15).withMinute(0).withSecond(0).withNano(0),
-                Collectors.collectingAndThen(Collectors.toList(), list -> {
-                    LocalDateTime date = list.getFirst().getDateTime().withMinute(0).withSecond(0).withNano(0);
-                    double sumImport = list.stream().mapToDouble(EnergyEntry::getImportMWh).sum() / 4.0;
-                    double sumExport = list.stream().mapToDouble(EnergyEntry::getExportMWh).sum() / 4.0;
-                    return new EnergyEntry(date, sumImport, sumExport);
-                })
+    /**
+     * Groups CEZ entries into quarters keyed by the quarter START.
+     * CEZ stamps the END of each quarter and reports the average power (kW) over it, hence the 15-minute shift and the
+     * division by 4 to get kWh. Values are summed so both copies of the repeated quarters on the DST fall-back day count.
+     */
+    public static Map<LocalDateTime, EnergyEntry> aggregateQuarterHourly(List<EnergyEntry> data) {
+        Map<LocalDateTime, List<EnergyEntry>> byQuarter = data.stream()
+                .collect(Collectors.groupingBy(e -> TimeUtils.toQuarterStart(e.getDateTime().minusMinutes(15))));
+
+        return byQuarter.entrySet().stream().collect(Collectors.toMap(
+                Map.Entry::getKey,
+                entry -> new EnergyEntry(
+                        entry.getKey(),
+                        entry.getValue().stream().mapToDouble(EnergyEntry::getImportMWh).sum() / 4.0,
+                        entry.getValue().stream().mapToDouble(EnergyEntry::getExportMWh).sum() / 4.0
+                )
         ));
     }
 }

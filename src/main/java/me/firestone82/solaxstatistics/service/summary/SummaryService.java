@@ -8,15 +8,13 @@ import me.firestone82.solaxstatistics.model.summary.OverallSummary;
 import me.firestone82.solaxstatistics.model.summary.SummaryRow;
 import me.firestone82.solaxstatistics.serialization.GsonService;
 import me.firestone82.solaxstatistics.service.cez.CEZService;
-import me.firestone82.solaxstatistics.service.cez.CEZTariff;
+import me.firestone82.solaxstatistics.configuration.cez.CEZTariff;
 import me.firestone82.solaxstatistics.service.ote.OTEService;
 import me.firestone82.solaxstatistics.service.smtp.EmailService;
 import me.firestone82.solaxstatistics.service.solax.SolaxService;
 import me.firestone82.solaxstatistics.utils.FileUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
@@ -26,6 +24,7 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -33,6 +32,8 @@ import java.util.stream.Stream;
 @Slf4j
 @Service
 public class SummaryService {
+    private static final int BEST_EXPORT_DAYS = 10;
+
     private final SolaxService solaxService;
     private final CEZService cezService;
     private final CEZTariff cezTariff;
@@ -56,6 +57,7 @@ public class SummaryService {
         this.oteService = oteService;
         this.emailService = emailService;
         this.dataDir = FileUtils.ensureFolderCreated(storagePath, "summary");
+        FileUtils.moveMonthFilesToYearFolders(dataDir);
 
         log.info("Initialized Summary service. Data directory: {}", dataDir.getAbsolutePath());
     }
@@ -63,13 +65,13 @@ public class SummaryService {
     public Optional<OverallSummary> processSummary(YearMonth yearMonth) {
         log.debug("Processing FVE statistics for {}", yearMonth);
 
-        Optional<Map<LocalDateTime, EnergyEntry>> consumptionData = cezService.getConsumptionHourly(yearMonth);
+        Optional<Map<LocalDateTime, EnergyEntry>> consumptionData = cezService.getConsumptionQuarterHourly(yearMonth);
         if (consumptionData.isEmpty()) {
             log.warn("Unable to process data for {}, since CEZ scraping failed!", yearMonth);
             return Optional.empty();
         }
 
-        Optional<Map<LocalDateTime, StatisticsEntry>> statisticsData = solaxService.getStatisticsHourly(yearMonth);
+        Optional<Map<LocalDateTime, StatisticsEntry>> statisticsData = solaxService.getStatisticsQuarterHourly(yearMonth);
         if (statisticsData.isEmpty()) {
             log.warn("Unable to process data for {}, since Solax scraping failed!", yearMonth);
             return Optional.empty();
@@ -82,10 +84,10 @@ public class SummaryService {
         }
 
         // Summary
-        List<SummaryRow> hourlyStatistics = mergeWithPrices(consumptionData.get(), statisticsData.get(), priceData.get());
+        List<SummaryRow> quarterHourlyStatistics = mergeWithPrices(consumptionData.get(), statisticsData.get(), priceData.get());
         List<SummaryRow> monthlyStatistics = getMonthlyHistory(yearMonth);
 
-        OverallSummary summary = new OverallSummary(yearMonth, hourlyStatistics);
+        OverallSummary summary = new OverallSummary(yearMonth, quarterHourlyStatistics);
         double totalImport = summary.getTotal().getImportGrid() + summary.getTotal().getImportSelf();
         double totalExport = summary.getTotal().getExportGrid() + summary.getTotal().getExportSelf();
         log.info("Summary processing completed for {}. Total consumption/import/export: {}/{}/{} kWh", yearMonth, summary.getTotal().getConsumption(), totalImport, totalExport);
@@ -100,7 +102,11 @@ public class SummaryService {
         }
 
         // Send email with attachments
-//        sendEmail(yearMonth, summary, List.of(excelFile.get()));
+        if (emailService.isEnabled()) {
+            sendEmail(yearMonth, summary, List.of(excelFile.get()));
+        } else {
+            log.debug("Not sending summary email for {}, email.enabled is false", yearMonth);
+        }
 
         return Optional.of(summary);
     }
@@ -109,7 +115,7 @@ public class SummaryService {
         String filename = String.format("summary_%s.xlsx", yearMonth);
         log.debug("Saving summary to Excel file: {}", filename);
 
-        File file = new File(dataDir, filename);
+        File file = FileUtils.getMonthFile(dataDir, yearMonth, filename);
 
         try {
             SummaryExcelExporter exporter = new SummaryExcelExporter();
@@ -127,7 +133,7 @@ public class SummaryService {
         String filename = String.format("summary_%s.json", yearMonth);
         log.debug("Saving summary to JSON file: {}", filename);
 
-        File file = new File(dataDir, filename);
+        File file = FileUtils.getMonthFile(dataDir, yearMonth, filename);
 
         try (FileWriter writer = new FileWriter(file)) {
             GsonService.gson.toJson(summaryRow, writer);
@@ -164,6 +170,7 @@ public class SummaryService {
         variables.put("savings", summary.getTotal().getSavings());
         variables.put("selfUsePercentage", summary.getTotal().getSelfUsePercentage());
         variables.put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        variables.put("bestExportDays", getBestExportDays(summary));
 
         // Round all double values to 3 decimal places
         variables.replaceAll((k, v) -> {
@@ -174,19 +181,51 @@ public class SummaryService {
             return v;
         });
 
+        // Each template sets its own subject in <title>, this one is only the fallback
         String subject = "FVE - Monthly report of " + yearMonth;
-        emailService.sendEmail("energy-report.html", subject, variables, attachments);
-        log.info("Summary email for {} sent successfully", yearMonth);
+        int sent = emailService.sendToRecipients(subject, variables, attachments);
+        log.info("Summary email for {} sent to {} recipient(s)", yearMonth, sent);
+    }
+
+    /**
+     * Rows of the "best export days" table in the email: the days with the highest grid export revenue.
+     */
+    private List<Map<String, Object>> getBestExportDays(OverallSummary summary) {
+        List<SummaryRow> bestDays = summary.getDaily().stream()
+                .filter(day -> day.getExportGrid() > 0)
+                // Months without export revenue (before 2025-02) are ranked by the exported energy instead
+                .sorted(Comparator.comparingDouble(SummaryRow::getExportRevenueGrid)
+                        .thenComparingDouble(SummaryRow::getExportGrid)
+                        .reversed())
+                .limit(BEST_EXPORT_DAYS)
+                .toList();
+
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int i = 0; i < bestDays.size(); i++) {
+            SummaryRow day = bestDays.get(i);
+            rows.add(Map.of(
+                    "rank", i + 1,
+                    "day", day.getDate().toLocalDate(),
+                    "export", day.getExportGrid(),
+                    "revenue", day.getExportRevenueGrid(),
+                    "price", day.getExportRevenueGrid() / day.getExportGrid()
+            ));
+        }
+
+        return rows;
     }
 
     public List<SummaryRow> getMonthlyHistory(YearMonth yearMonth) {
-        File[] files = dataDir.listFiles((dir, name) -> name.matches("summary_\\d{4}-\\d{2}\\.json"));
-        if (files == null) {
+        // Summaries are stored in the folders of their years
+        File[] yearDirs = dataDir.listFiles(File::isDirectory);
+        if (yearDirs == null) {
             log.warn("No summary files found in directory: {}", dataDir.getAbsolutePath());
-            return List.of();
+            return new ArrayList<>();
         }
 
-        return Stream.of(files)
+        return Stream.of(yearDirs)
+                .flatMap(yearDir -> Stream.ofNullable(yearDir.listFiles((dir, name) -> name.matches("summary_\\d{4}-\\d{2}\\.json"))))
+                .flatMap(Stream::of)
                 .map(f -> {
                     String datePart = f.getName().replace("summary_", "").replace(".json", "");
                     YearMonth fileYearMonth = YearMonth.parse(datePart);
@@ -207,96 +246,120 @@ public class SummaryService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Merges the per-quarter CEZ and Solax data with OTE prices into one summary row per quarter (keyed by quarter start).
+     */
     private List<SummaryRow> mergeWithPrices(Map<LocalDateTime, EnergyEntry> cezData, Map<LocalDateTime, StatisticsEntry> solaxData, List<PriceEntry> priceData) {
         // Build a NavigableMap for "previous value" lookups
         final NavigableMap<LocalDateTime, StatisticsEntry> solaxNav = new TreeMap<>(solaxData);
+        // A source repeating a timestamp (e.g. the DST fall-back hour) must not fail the whole month, keep the first price
         final Map<LocalDateTime, PriceEntry> priceMap = priceData.stream()
-                .collect(Collectors.toMap(PriceEntry::getDateTime, p -> p));
+                .collect(Collectors.toMap(PriceEntry::getDateTime, p -> p, (first, duplicate) -> first));
 
         return cezData.entrySet().stream()
                 .map(e -> {
                     LocalDateTime dt = e.getKey();
                     EnergyEntry energyEntry = e.getValue();
-                    PriceEntry priceEntry = priceMap.get(dt);
-
-                    // Try exact match first; otherwise take the previous (floor) entry.
-                    StatisticsEntry statisticsEntry = solaxData.get(dt);
-                    if (statisticsEntry == null) {
-                        Map.Entry<LocalDateTime, StatisticsEntry> floor = solaxNav.floorEntry(dt);
-
-                        statisticsEntry = (floor != null) ? floor.getValue() : null;
-                        if (statisticsEntry != null) {
-                            log.debug("Using previous StatisticsEntry from {} for {}", floor.getKey(), dt);
-                        }
-                    }
+                    PriceEntry priceEntry = findPrice(priceMap, dt);
+                    StatisticsEntry statisticsEntry = findStatistics(solaxNav, dt);
 
                     if (energyEntry == null || priceEntry == null || statisticsEntry == null) {
                         log.warn("Missing data for date: {} (energy={}, price={}, stats={})", dt, energyEntry != null, priceEntry != null, statisticsEntry != null);
                         return null; // Skip this entry if any data is missing
                     }
 
-                    // Before 2025-02, no export to grid was possible
-                    boolean noExport = dt.getYear() < 2025 || (dt.getYear() == 2025 && dt.getMonthValue() < 2);
-
-                    // Solax (convert MWh -> kWh where appropriate)
-                    double consumption = statisticsEntry.getConsumptionMWh() * 1000;
-                    double yield = statisticsEntry.getYieldMWh() * 1000;
-
-                    // Prices
-                    double importPriceGrid = cezTariff.getImportPrice().getCzk() > 0
-                            ? cezTariff.getImportPrice().getCzk()
-                            : priceEntry.getCzkPriceMWh();
-                    double importPriceSelf = getDayNightPrice(dt.getHour(), 2.1, 1.1); // CZK/kWh
-                    double exportPriceGrid = priceEntry.getCzkPriceMWh() / 1000;
-                    double exportPriceSelf = 0.0; // Late calculation
-
-                    // Import
-                    double importGrid = noExport
-                            ? (statisticsEntry.getImportMWh() * 1000)
-                            : energyEntry.getImportMWh();
-                    double importSelf = Math.max((statisticsEntry.getImportMWh() * 1000) - importGrid, 0);
-                    double importCostGrid = importGrid * importPriceGrid;
-                    double importCostSelf = importSelf * importPriceSelf;
-
-                    // Export
-                    double exportGrid = noExport
-                            ? (statisticsEntry.getExportMWh() * 1000)
-                            : energyEntry.getExportMWh();
-                    double exportRest = Math.max((statisticsEntry.getExportMWh() * 1000) - exportGrid, 0);
-                    double exportRevenueGrid = (exportGrid * exportPriceGrid) - (exportGrid * cezTariff.getExportFee().getCzk());
-                    double exportRevenueSelf = exportRest * exportPriceSelf;
-
-                    if (noExport) {
-                        exportRevenueGrid = 0.0;
-                        exportRevenueSelf = 0.0;
-                    }
-
-                    // Self consumption
-                    double selfConsumed = consumption - importGrid - importSelf;
-                    double savings = selfConsumed * importPriceGrid;
-                    double selfUsePercentage = consumption == 0 ? 100.0 : Math.max((selfConsumed / consumption) * 100.0, 0);
-
-                    return SummaryRow.builder()
-                            .date(dt)
-                            .yield(yield)
-                            .consumption(consumption)
-                            .exportPriceGrid(exportPriceGrid)
-                            .importGrid(importGrid)
-                            .importSelf(importSelf)
-                            .importCostGrid(importCostGrid)
-                            .importCostSelf(importCostSelf)
-                            .exportGrid(exportGrid)
-                            .exportSelf(exportRest)
-                            .exportRevenueGrid(exportRevenueGrid)
-                            .exportRevenueSelf(exportRevenueSelf)
-                            .selfConsummated(selfConsumed)
-                            .savings(savings)
-                            .selfUsePercentage(selfUsePercentage)
-                            .build();
+                    return createSummaryRow(dt, energyEntry, statisticsEntry, priceEntry);
                 })
                 .filter(Objects::nonNull)
                 .sorted(Comparator.comparing(SummaryRow::getDate))
                 .collect(Collectors.toList());
+    }
+
+    private PriceEntry findPrice(Map<LocalDateTime, PriceEntry> priceMap, LocalDateTime quarter) {
+        PriceEntry priceEntry = priceMap.get(quarter);
+        if (priceEntry != null) {
+            return priceEntry;
+        }
+
+        // Months cached before OTE switched to 15-minute products only hold one price per hour
+        return priceMap.get(quarter.truncatedTo(ChronoUnit.HOURS));
+    }
+
+    private StatisticsEntry findStatistics(NavigableMap<LocalDateTime, StatisticsEntry> solaxNav, LocalDateTime quarter) {
+        // Try exact match first; otherwise take the previous (floor) entry.
+        StatisticsEntry statisticsEntry = solaxNav.get(quarter);
+        if (statisticsEntry != null) {
+            return statisticsEntry;
+        }
+
+        Map.Entry<LocalDateTime, StatisticsEntry> floor = solaxNav.floorEntry(quarter);
+        if (floor == null) {
+            return null;
+        }
+
+        log.debug("Using previous StatisticsEntry from {} for {}", floor.getKey(), quarter);
+        return floor.getValue();
+    }
+
+    private SummaryRow createSummaryRow(LocalDateTime dt, EnergyEntry energyEntry, StatisticsEntry statisticsEntry, PriceEntry priceEntry) {
+        // Before 2025-02, no export to grid was possible
+        boolean noExport = dt.getYear() < 2025 || (dt.getYear() == 2025 && dt.getMonthValue() < 2);
+
+        // Solax (convert MWh -> kWh where appropriate)
+        double consumption = statisticsEntry.getConsumptionMWh() * 1000;
+        double yield = statisticsEntry.getYieldMWh() * 1000;
+
+        // Prices (CZK/kWh)
+        double importPriceGrid = cezTariff.getImportPrice().getCzk() > 0
+                ? cezTariff.getImportPrice().getCzk()
+                : priceEntry.getCzkPriceMWh() / 1000;
+        double importPriceSelf = getDayNightPrice(dt.getHour(), 2.1, 1.1);
+        double exportPriceGrid = priceEntry.getCzkPriceMWh() / 1000;
+        double exportPriceSelf = 0.0; // Late calculation
+
+        // Import
+        double importGrid = noExport
+                ? (statisticsEntry.getImportMWh() * 1000)
+                : energyEntry.getImportMWh();
+        double importSelf = Math.max((statisticsEntry.getImportMWh() * 1000) - importGrid, 0);
+        double importCostGrid = importGrid * importPriceGrid;
+        double importCostSelf = importSelf * importPriceSelf;
+
+        // Export
+        double exportGrid = noExport
+                ? (statisticsEntry.getExportMWh() * 1000)
+                : energyEntry.getExportMWh();
+        double exportRest = Math.max((statisticsEntry.getExportMWh() * 1000) - exportGrid, 0);
+        double exportRevenueGrid = (exportGrid * exportPriceGrid) - (exportGrid * cezTariff.getExportFee().getCzk());
+        double exportRevenueSelf = exportRest * exportPriceSelf;
+
+        if (noExport) {
+            exportRevenueGrid = 0.0;
+            exportRevenueSelf = 0.0;
+        }
+
+        // Self consumption
+        double selfConsumed = consumption - importGrid - importSelf;
+        double savings = selfConsumed * importPriceGrid;
+        double selfUsePercentage = consumption == 0 ? 100.0 : Math.max((selfConsumed / consumption) * 100.0, 0);
+
+        return SummaryRow.builder()
+                .date(dt)
+                .yield(yield)
+                .consumption(consumption)
+                .exportPriceGrid(exportPriceGrid)
+                .importGrid(importGrid)
+                .importSelf(importSelf)
+                .importCostGrid(importCostGrid)
+                .importCostSelf(importCostSelf)
+                .exportGrid(exportGrid)
+                .exportSelf(exportRest)
+                .exportRevenueGrid(exportRevenueGrid)
+                .exportRevenueSelf(exportRevenueSelf)
+                .selfConsummated(selfConsumed)
+                .savings(savings)
+                .selfUsePercentage(selfUsePercentage)
+                .build();
     }
 
     private double getDayNightPrice(int hour, double dayPrice, double nightPrice) {
@@ -305,16 +368,5 @@ public class SummaryService {
         }
 
         return dayPrice;
-    }
-
-    @EventListener(ApplicationReadyEvent.class)
-    public void test() {
-        YearMonth start = YearMonth.of(2025, 9);
-        YearMonth end = YearMonth.of(2025, 9);
-
-        while (!start.isAfter(end)) {
-            processSummary(start);
-            start = start.plusMonths(1);
-        }
     }
 }

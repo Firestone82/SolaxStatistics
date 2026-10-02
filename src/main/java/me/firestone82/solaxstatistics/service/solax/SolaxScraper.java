@@ -1,330 +1,373 @@
 package me.firestone82.solaxstatistics.service.solax;
 
-import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import me.firestone82.solaxstatistics.model.StatisticsEntry;
+import me.firestone82.solaxstatistics.scraper.BrowserSession;
+import me.firestone82.solaxstatistics.scraper.SeleniumScraper;
+import me.firestone82.solaxstatistics.configuration.solax.SolaxProperties;
 import org.apache.poi.ss.usermodel.*;
 import org.openqa.selenium.By;
-import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.Keys;
+import org.openqa.selenium.TimeoutException;
 import org.openqa.selenium.WebElement;
-import org.openqa.selenium.chrome.ChromeDriver;
-import org.openqa.selenium.chrome.ChromeOptions;
+import org.openqa.selenium.interactions.Actions;
 import org.openqa.selenium.support.ui.ExpectedConditions;
-import org.openqa.selenium.support.ui.WebDriverWait;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.io.File;
-import java.io.IOException;
-import java.net.URI;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Stream;
 
 @Slf4j
 @Component
-public class SolaxScraper {
+public class SolaxScraper extends SeleniumScraper {
+
+    private static final Duration LOGIN_TIMEOUT = Duration.ofSeconds(60);
+    private static final Duration URL_STABLE_DURATION = Duration.ofSeconds(3);
+    private static final Duration EXPORT_TIMEOUT = Duration.ofMinutes(5);
+    private static final Duration EXPORT_POLL_INTERVAL = Duration.ofSeconds(10);
+    private static final Duration DOWNLOAD_TIMEOUT = Duration.ofSeconds(60);
+    private static final int DATE_RANGE_ATTEMPTS = 3;
+    private static final int PLANT_LIST_ATTEMPTS = 3;
+    private static final int TOTAL_STEPS = 5;
+
+    private static final DateTimeFormatter EXPORT_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    private static final String PLANT_LIST_ROUTE = "#/plant-list";
+    private static final String EXPORT_COMPLETED_STATUS = "Export completed";
+
+    // Login page (user center)
+    private static final By USERNAME_INPUT = By.cssSelector("#app .right-block .main-login input.arco-input[type='text']");
+    private static final By PASSWORD_INPUT = By.cssSelector("#app .right-block .main-login input[type='password']");
+    private static final By AGREEMENT_CHECKBOX = By.id("agreeMent");
+    private static final By AGREEMENT_CHECKBOX_ICON = By.cssSelector("#agreeMent .arco-checkbox-icon-hover");
+    private static final By AGREEMENT_CHECKBOX_INPUT = By.cssSelector("#agreeMent > input");
+    private static final By LOGIN_BUTTON = By.cssSelector("#app .right-block .main-login .submit-button");
+
+    // Privacy / terms confirmation dialog which can pop up over the application after login
+    private static final By PRIVACY_DIALOG_CONFIRM_BUTTON = By.cssSelector(".privacy-dialog .arco-modal-footer button.arco-btn-primary");
+
+    // Plant list page. Header buttons are matched by their icon, as hidden buttons shift the nth-child positions.
+    private static final By EXPORT_RECORDS_BUTTON = By.xpath("//*[@id='container']//div[contains(@class,'header-right')]//button[.//i[contains(@class,'icon-export')]]");
+    private static final By EXPORT_BUTTON = By.xpath("//*[@id='container']//div[contains(@class,'header-right')]//button[.//i[contains(@class,'icon-daochu')]]");
+
+    // Export drawer. Drawers and modals are appended to <body>, so their position there is not stable.
+    private static final By EXPORT_DRAWER = By.xpath("//div[contains(@class,'arco-drawer-container')]/div[contains(concat(' ', normalize-space(@class), ' '), ' arco-drawer ')][.//*[@id='time']]");
+    private static final By EXPORT_DATE_INPUTS = By.cssSelector("#time .arco-picker-input > input");
+    private static final By EXPORT_CONFIRM_BUTTON = By.cssSelector(".arco-drawer-footer button.arco-btn-primary");
+
+    // Export records modal
+    private static final By EXPORT_RECORDS_TABLE = By.cssSelector(".arco-modal-container .export-record-spin");
+    private static final By EXPORT_RECORDS_LOADING = By.cssSelector(".arco-modal-container .export-record-spin.arco-spin-loading, .arco-modal-container .export-record-spin .arco-spin-loading");
+    private static final By EXPORT_RECORD_ROWS = By.cssSelector(".arco-table-body tbody > tr.arco-table-tr:not(.arco-table-tr-empty)");
+    private static final By EXPORT_RECORD_STATUS = By.cssSelector("td:nth-child(8)");
+    private static final By EXPORT_RECORD_DOWNLOAD = By.cssSelector("td:nth-child(9) > span > span > span > div > div:nth-child(2)");
 
     private final String portalUrl;
-    private final String reportUrl;
-    private final String exportedDataUrl;
     private final String username;
     private final String password;
 
-    @Setter
-    private File downloadDir;
-
-    public SolaxScraper(
-            @Value("${solax.url.portal}") String portalUrl,
-            @Value("${solax.url.report}") String reportUrl,
-            @Value("${solax.url.exportedData}") String exportedDataUrl,
-            @Value("${solax.credentials.username}") String username,
-            @Value("${solax.credentials.password}") String password
-    ) {
-        this.portalUrl = portalUrl;
-        this.reportUrl = reportUrl;
-        this.exportedDataUrl = exportedDataUrl;
-        this.username = username;
-        this.password = password;
+    public SolaxScraper(SolaxProperties properties) {
+        super("Solax", properties.isHeadless());
+        this.portalUrl = properties.getUrl().getPortal();
+        this.username = properties.getCredentials().getUsername();
+        this.password = properties.getCredentials().getPassword();
     }
 
     public Optional<List<StatisticsEntry>> scrapeData(YearMonth yearMonth) {
         log.debug("Scraping Solax data for {}", yearMonth);
 
-        Path tempDir;
-        if (downloadDir != null) {
-            tempDir = downloadDir.toPath();
-            log.trace("Using provided download directory: {}", tempDir);
-        } else {
-            log.trace("No download directory provided, creating a temporary one");
-            tempDir = createTempDownloadDir().orElse(null);
-        }
+        return runInBrowser(browser -> {
+            logStep(1, TOTAL_STEPS, "Logging in");
+            String appBaseUrl = login(browser);
 
-        if (tempDir == null) {
-            log.error("No valid download directory available, aborting");
-            return Optional.empty();
-        }
+            logStep(2, TOTAL_STEPS, "Requesting export for %s", yearMonth);
+            requestExport(browser, appBaseUrl, yearMonth);
 
-        try {
-            Files.createDirectories(tempDir);
-            log.trace("Ensured download directory exists: {}", tempDir.toAbsolutePath());
-        } catch (IOException e) {
-            log.error("Failed to create download directory {}: {}", tempDir, e.getMessage(), e);
-            return Optional.empty();
-        }
-
-        ChromeOptions options = new ChromeOptions();
-//        options.addArguments("--headless=new", "--disable-gpu");
-        options.addArguments("--no-sandbox", "--disable-dev-shm-usage");
-        Map<String, Object> chromePrefs = Map.of(
-                "download.default_directory", tempDir.toFile().getAbsolutePath(),
-                "download.prompt_for_download", false,
-                "safebrowsing.enabled", true
-        );
-        options.setExperimentalOption("prefs", chromePrefs);
-        log.trace("ChromeOptions prepared with prefs: {}", chromePrefs);
-
-        WebDriver driver = new ChromeDriver(options);
-        log.trace("ChromeDriver started");
-
-        try {
-            WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(20));
-            log.trace("WebDriverWait created with timeout: {} seconds", 20);
-
-            long overallStartNanos = System.nanoTime();
-
-            log.debug("Step 1/4: Logging in");
-            login(driver, wait);
-            traceSleep(5000, "after login to allow page load");
-
-            log.debug("Step 2/4: Requesting monthly export for {}", yearMonth);
-            requestMonthlyExport(driver, wait, yearMonth);
-            traceSleep(2000, "after export request");
-
-            log.debug("Step 3/4: Waiting for export to complete");
-            boolean completed = waitUntilExportCompleted(driver, wait, Duration.ofMinutes(3));
-            if (!completed) {
-                log.warn("Timed out waiting for export to complete");
+            logStep(3, TOTAL_STEPS, "Waiting for export to complete");
+            WebElement exportRecord = waitForCompletedExport(browser, appBaseUrl).orElse(null);
+            if (exportRecord == null) {
                 return Optional.empty();
             }
 
-            log.debug("Step 4/4: Downloading the exported report");
-            By FIRST_DOWNLOAD_ICON = By.cssSelector("#container > div > div.base-box > div.body > div > div.arco-table.arco-table-size-large.arco-table-border.arco-table-hover.arco-table-type-selection > div > div > div > table > tbody > tr:nth-child(1) > td:nth-child(8) > span > span > i.iconfont.icon-xiazai.success");
-            log.trace("Waiting for first download icon to be clickable: {}", FIRST_DOWNLOAD_ICON);
-            wait.until(ExpectedConditions.elementToBeClickable(FIRST_DOWNLOAD_ICON)).click();
-            log.debug("Clicked first download icon to trigger file download");
-
-            Path downloaded = waitForLatestDownload(tempDir, "Plant Reports", Duration.ofSeconds(30)).orElse(null);
+            logStep(4, TOTAL_STEPS, "Downloading the exported report");
+            Path downloaded = downloadExport(browser, exportRecord).orElse(null);
             if (downloaded == null) {
-                log.warn("No exported file found in {}", tempDir);
+                log.warn("No exported file was downloaded to {}", browser.getDownloadDir());
                 return Optional.empty();
             }
-            log.debug("Latest downloaded file detected: {}", downloaded.getFileName());
 
-            List<StatisticsEntry> entries = parseExcel(downloaded);
-            log.debug("Scraped {} entries for {}", entries.size(), yearMonth);
-
-            long overallElapsedMs = Duration.ofNanos(System.nanoTime() - overallStartNanos).toMillis();
-            log.info("Solax scraping completed in {} ms for {}", overallElapsedMs, yearMonth);
-
-            return Optional.of(entries);
-        } catch (Exception e) {
-            log.error("Error during Solax scraping: {}", e.getMessage(), e);
-            return Optional.empty();
-        } finally {
-            try {
-                log.trace("Quitting WebDriver");
-                driver.quit();
-            } catch (Exception ignore) {
-                log.trace("Ignoring exception during WebDriver quit");
-            }
-        }
-    }
-
-    private void login(WebDriver driver, WebDriverWait wait) {
-        log.trace("Login: navigating to portal URL");
-        navigate(driver, portalUrl, wait);
-
-        By USERNAME_INPUT = By.xpath("//*[@id=\"app\"]/div/div[2]/div[3]/div/div[3]/span[1]/input");
-        By PASSWORD_INPUT = By.xpath("//*[@id=\"app\"]/div/div[2]/div[3]/div/div[4]/span/input");
-        By AGREE_CHECKBOX = By.xpath("//*[@id=\"agreeMent\"]/span[1]");
-        By LOGIN_BUTTON = By.xpath("//*[@id=\"app\"]/div/div[2]/div[3]/div/div[6]");
-
-        log.trace("Waiting for username input: {}", USERNAME_INPUT);
-        wait.until(ExpectedConditions.presenceOfElementLocated(USERNAME_INPUT)).sendKeys(username);
-
-        log.trace("Waiting for password input: {}", PASSWORD_INPUT);
-        wait.until(ExpectedConditions.presenceOfElementLocated(PASSWORD_INPUT)).sendKeys(password);
-
-        log.trace("Clicking agree checkbox: {}", AGREE_CHECKBOX);
-        wait.until(ExpectedConditions.elementToBeClickable(AGREE_CHECKBOX)).click();
-
-        log.trace("Clicking login button: {}", LOGIN_BUTTON);
-        wait.until(ExpectedConditions.elementToBeClickable(LOGIN_BUTTON)).click();
-    }
-
-    private void requestMonthlyExport(WebDriver driver, WebDriverWait wait, YearMonth yearMonth) throws InterruptedException {
-        log.trace("Navigating to report URL for export");
-        navigate(driver, reportUrl, wait);
-
-        By ADVANCED_EXPORT_BUTTON = By.xpath("//*[@id=\"container\"]/div[2]/div/div/div[1]/div[2]/button[2]");
-        log.trace("Waiting for advanced export button: {}", ADVANCED_EXPORT_BUTTON);
-        wait.until(ExpectedConditions.elementToBeClickable(ADVANCED_EXPORT_BUTTON)).click();
-        traceSleep(250, "after opening advanced export dialog");
-
-        By DATE_INPUT = By.xpath("//*[@id=\"time\"]/div/div/div/div[1]/input");
-        log.trace("Waiting for date input: {}", DATE_INPUT);
-        wait.until(ExpectedConditions.elementToBeClickable(DATE_INPUT)).click();
-        traceSleep(1000, "allow date picker to render");
-
-        By PREV_MONTH_BTN = By.cssSelector("body > div:nth-child(15) > div > div > div > div > div.arco-picker-range > div > div:nth-child(1) > div > div.arco-picker-header > div:nth-child(2)");
-        By YEAR_TEXT = By.cssSelector("body > div:nth-child(15) > div > div > div > div > div.arco-picker-range > div > div:nth-child(1) > div > div.arco-picker-header > div.arco-picker-header-title > span:first-child");
-        By MONTH_TEXT = By.cssSelector("body > div:nth-child(15) > div > div > div > div > div.arco-picker-range > div > div:nth-child(1) > div > div.arco-picker-header > div.arco-picker-header-title > span:nth-child(3)");
-
-        WebElement yearText = wait.until(ExpectedConditions.presenceOfElementLocated(YEAR_TEXT));
-        WebElement monthText = wait.until(ExpectedConditions.presenceOfElementLocated(MONTH_TEXT));
-        String monthTwoDigits = "%02d".formatted(yearMonth.getMonthValue());
-        int safetyGuard = 0;
-
-        log.trace("Target month/year: {}/{}", monthTwoDigits, yearMonth.getYear());
-
-        // Move calendar to desired month
-        while ((!monthText.getText().equalsIgnoreCase(monthTwoDigits) || !yearText.getText().equalsIgnoreCase(String.valueOf(yearMonth.getYear()))) && safetyGuard++ < 24) {
-            log.trace("Calendar currently at month/year: {}/{}. Clicking previous month.", monthText.getText(), yearText.getText());
-            wait.until(ExpectedConditions.elementToBeClickable(PREV_MONTH_BTN)).click();
-            traceSleep(250, "after calendar month change");
-            yearText = wait.until(ExpectedConditions.presenceOfElementLocated(YEAR_TEXT));
-            monthText = wait.until(ExpectedConditions.presenceOfElementLocated(MONTH_TEXT));
-        }
-
-        if (safetyGuard >= 24) {
-            log.warn("Safety guard hit while selecting month; calendar might not be responding");
-        } else {
-            log.trace("Calendar positioned at target month/year: {}/{}", monthTwoDigits, yearMonth.getYear());
-        }
-
-        By CALENDAR_GRID = By.cssSelector("body > div:nth-child(15) > div > div > div > div > div.arco-picker-range > div > div:nth-child(1) > div > div.arco-picker-body");
-        WebElement grid = wait.until(ExpectedConditions.visibilityOfElementLocated(CALENDAR_GRID));
-        List<WebElement> cells = grid.findElements(By.className("arco-picker-cell-in-view"));
-
-        log.trace("Found {} in-view calendar cells before filtering disabled", cells.size());
-
-        cells.removeIf(cell -> {
-            String classAttr = cell.getAttribute("class");
-            return classAttr != null && classAttr.contains("arco-picker-cell-disabled");
+            logStep(5, TOTAL_STEPS, "Parsing the exported report %s", downloaded.getFileName());
+            return parseExport(downloaded, yearMonth);
         });
-        log.trace("Remaining {} selectable cells after filtering disabled", cells.size());
-
-        if (cells.isEmpty()) {
-            throw new IllegalStateException("Calendar grid has no in-view cells");
-        }
-
-        log.trace("Selecting first and last day cells");
-        cells.getFirst().findElement(By.className("arco-picker-date")).click();
-        cells.getLast().findElement(By.className("arco-picker-date")).click();
-        traceSleep(1000, "after selecting date range");
-
-        By EXPORT_CONFIRM = By.xpath("/html/body/div[8]/div[2]/div[3]/button[2]");
-        log.trace("Clicking export confirm button: {}", EXPORT_CONFIRM);
-        wait.until(ExpectedConditions.elementToBeClickable(EXPORT_CONFIRM)).click();
-        traceSleep(1000, "after export confirmation");
     }
 
-    private boolean waitUntilExportCompleted(WebDriver driver, WebDriverWait wait, Duration timeout) throws InterruptedException {
-        log.trace("Navigating to exported data URL to poll status");
-        navigate(driver, exportedDataUrl, wait);
+    /**
+     * Logs in through the user center and returns the base URL of the application it redirects to.
+     */
+    private String login(BrowserSession browser) throws InterruptedException {
+        browser.navigate(portalUrl);
+        browser.type(USERNAME_INPUT, username);
+        browser.type(PASSWORD_INPUT, password);
+        ensureAgreementChecked(browser);
+        browser.click(LOGIN_BUTTON);
 
-        driver.navigate().refresh();
-        traceSleep(1000, "after initial refresh on export page");
-
-        long deadlineNanos = System.nanoTime() + timeout.toNanos();
-        long iteration = 0L;
-        By EXPORT_STATUS_CELL = By.cssSelector("#container > div > div.base-box > div.body > div > div.arco-table.arco-table-size-large.arco-table-border.arco-table-hover.arco-table-type-selection > div > div > div > table > tbody > tr:nth-child(1) > td:nth-child(7) > span > span > span");
-
-        while (System.nanoTime() < deadlineNanos) {
-            iteration++;
-            TimeUnit.SECONDS.sleep(1); // Give the page time to update
-
-            try {
-                String statusText = driver.findElement(EXPORT_STATUS_CELL).getText();
-                log.trace("Poll {}: current export status text = '{}'", iteration, statusText);
-
-                if ("Export completed".equalsIgnoreCase(statusText)) {
-                    log.debug("Export is completed after {} polls", iteration);
-                    return true;
-                }
-            } catch (Exception ex) {
-                log.trace("Poll {}: unable to read export status element ({}). Will retry.", iteration, ex.getMessage());
-            }
-
-            TimeUnit.SECONDS.sleep(5);
-            log.trace("Refreshing export page (poll {}) to get latest status", iteration);
-            driver.navigate().refresh();
+        // The user center redirects to the application, e.g. https://global.solaxcloud.com/blue/#/overview?stationId=...
+        // Both the host and the path (blue, green, ...) differ between accounts, so the base URL is taken from the redirect.
+        try {
+            browser.waitUntil(driver -> isApplicationUrl(driver.getCurrentUrl()), LOGIN_TIMEOUT);
+        } catch (TimeoutException e) {
+            throw new IllegalStateException("Login was not redirected to the application, still at " + BrowserSession.withoutQuery(browser.getCurrentUrl()) + ". Check the credentials.", e);
         }
 
-        log.warn("Export did not complete within timeout of {} seconds", timeout.toSeconds());
-        return false;
+        // The application keeps redirecting while it initializes (e.g. to '#/overview?stationId=...'),
+        // any navigation done before it settles gets overridden by these redirects
+        if (!browser.waitForStableUrl(URL_STABLE_DURATION, LOGIN_TIMEOUT)) {
+            log.debug("Application URL did not settle within {} seconds, continuing anyway", LOGIN_TIMEOUT.toSeconds());
+        }
+
+        String currentUrl = browser.getCurrentUrl();
+        String appBaseUrl = currentUrl.substring(0, currentUrl.indexOf('#'));
+        log.debug("Logged in, application base URL: {}", appBaseUrl);
+
+        return appBaseUrl;
     }
 
-    private Optional<Path> waitForLatestDownload(Path dir, String prefix, Duration timeout) {
-        log.trace("Waiting for latest download in directory '{}' with prefix '{}' (timeout {}s)", dir.toAbsolutePath(), prefix, timeout.toSeconds());
-        long deadlineNanos = System.nanoTime() + timeout.toNanos();
-        Path bestCandidate = null;
-        long bestMtime = Long.MIN_VALUE;
+    private static boolean isApplicationUrl(String url) {
+        // On the way to the overview, the application passes '#/login_sc?token=...&centerHost=.../user-center/'
+        return url != null && url.contains("#/") && !url.contains("/user-center") && !url.contains("#/login");
+    }
 
-        while (System.nanoTime() < deadlineNanos) {
-            try (Stream<Path> stream = Files.list(dir)) {
-                bestCandidate = stream
-                        .filter(p -> p.getFileName().toString().startsWith(prefix))
-                        .max(Comparator.comparingLong(p -> p.toFile().lastModified()))
-                        .orElse(null);
+    private void ensureAgreementChecked(BrowserSession browser) {
+        WebElement agreement = browser.waitForPresent(AGREEMENT_CHECKBOX);
+        if (isChecked(agreement)) {
+            log.trace("Agreement checkbox is already checked");
+            return;
+        }
 
-                if (bestCandidate != null) {
-                    long mtime = bestCandidate.toFile().lastModified();
-                    long sizeBytes = bestCandidate.toFile().length();
+        // Clicking the middle of the label hits the 'Privacy Policy' link and the <input> itself has zero size,
+        // so the checkbox icon is clicked. Clicking it again would uncheck it, hence the state checks.
+        browser.click(AGREEMENT_CHECKBOX_ICON);
 
-                    log.trace("Current best download candidate: name='{}', mtime={}, size={}B", bestCandidate.getFileName(), mtime, sizeBytes);
+        try {
+            browser.waitUntil(driver -> isChecked(driver.findElement(AGREEMENT_CHECKBOX)), Duration.ofSeconds(2));
+        } catch (TimeoutException e) {
+            log.trace("Agreement checkbox still unchecked, clicking its input via JavaScript");
+            browser.jsClick(browser.getDriver().findElement(AGREEMENT_CHECKBOX_INPUT));
+            browser.waitUntil(driver -> isChecked(driver.findElement(AGREEMENT_CHECKBOX)));
+        }
 
-                    if (mtime > bestMtime) {
-                        bestMtime = mtime;
+        log.trace("Agreement checkbox is checked");
+    }
 
-                        if (bestCandidate.toString().toLowerCase().endsWith(".xlsx") && sizeBytes > 0) {
-                            log.debug("Detected completed .xlsx download: {}", bestCandidate.getFileName());
-                            return Optional.of(bestCandidate);
-                        }
-                    }
-                } else {
-                    log.trace("No files currently matching prefix '{}' in {}", prefix, dir);
+    private static boolean isChecked(WebElement checkbox) {
+        String classes = checkbox.getDomAttribute("class");
+        return classes != null && classes.contains("arco-checkbox-checked");
+    }
+
+    private void requestExport(BrowserSession browser, String appBaseUrl, YearMonth yearMonth) throws InterruptedException {
+        LocalDate from = yearMonth.atDay(1);
+        // Future days are disabled in the date picker, so the current month can only be exported up to today
+        LocalDate to = Collections.min(List.of(yearMonth.atEndOfMonth(), LocalDate.now()));
+
+        openPlantList(browser, appBaseUrl);
+        browser.click(EXPORT_BUTTON);
+
+        WebElement drawer = browser.waitForVisible(EXPORT_DRAWER);
+        fillExportDateRange(browser, drawer, from, to);
+
+        log.trace("Clicking export confirm button: {}", EXPORT_CONFIRM_BUTTON);
+        browser.click(drawer.findElement(EXPORT_CONFIRM_BUTTON));
+
+        try {
+            browser.waitUntil(ExpectedConditions.invisibilityOfElementLocated(EXPORT_DRAWER));
+        } catch (TimeoutException e) {
+            throw new IllegalStateException("Export drawer did not close after confirming, the export was not requested", e);
+        }
+
+        log.debug("Export requested for {} - {}", from, to);
+        browser.pause(2000, "allow the export task to be registered");
+    }
+
+    private void fillExportDateRange(BrowserSession browser, WebElement drawer, LocalDate from, LocalDate to) throws InterruptedException {
+        String fromText = from.format(EXPORT_DATE_FORMATTER);
+        String toText = to.format(EXPORT_DATE_FORMATTER);
+
+        // The range picker swaps the dates when the typed start is after the current end (e.g. a range left from
+        // a previous export), which leaves a wrong range behind. Typing both dates again fixes that.
+        for (int attempt = 1; ; attempt++) {
+            List<WebElement> inputs = browser.waitUntil(driver -> {
+                List<WebElement> found = drawer.findElements(EXPORT_DATE_INPUTS);
+                return found.size() >= 2 ? found : null;
+            });
+
+            String shownFrom = inputs.get(0).getDomProperty("value");
+            String shownTo = inputs.get(1).getDomProperty("value");
+            log.trace("Export date range shows '{}' - '{}', expecting '{}' - '{}'", shownFrom, shownTo, fromText, toText);
+
+            if (fromText.equals(shownFrom) && toText.equals(shownTo)) {
+                log.debug("Export date range set to {} - {}", fromText, toText);
+                return;
+            }
+
+            if (attempt > DATE_RANGE_ATTEMPTS) {
+                throw new IllegalStateException("Unable to set export date range to " + fromText + " - " + toText + ", date picker shows " + shownFrom + " - " + shownTo);
+            }
+
+            typeDate(browser, inputs.get(0), fromText);
+            typeDate(browser, drawer.findElements(EXPORT_DATE_INPUTS).get(1), toText);
+        }
+    }
+
+    private void typeDate(BrowserSession browser, WebElement input, String date) throws InterruptedException {
+        log.trace("Typing date {} into date picker input", date);
+        browser.click(input);
+
+        // Select the current text so it is replaced by typing. Emptying the input first makes the picker restore the previous date.
+        browser.executeScript("arguments[0].focus(); arguments[0].select();", input);
+        new Actions(browser.getDriver())
+                .sendKeys(date)
+                .sendKeys(Keys.ENTER)
+                .perform();
+
+        browser.pause(300, "after typing date " + date);
+    }
+
+    private Optional<WebElement> waitForCompletedExport(BrowserSession browser, String appBaseUrl) throws InterruptedException {
+        long deadlineNanos = System.nanoTime() + EXPORT_TIMEOUT.toNanos();
+        int poll = 0;
+
+        while (true) {
+            poll++;
+
+            // Reload the page, so the export records are loaded again
+            log.trace("Poll {}: reloading plant list", poll);
+            openPlantList(browser, appBaseUrl);
+            browser.click(EXPORT_RECORDS_BUTTON);
+
+            Optional<WebElement> latestRecord = findLatestExportRecord(browser);
+            if (latestRecord.isPresent()) {
+                WebElement record = latestRecord.get();
+                String status = record.findElement(EXPORT_RECORD_STATUS).getText().trim();
+                log.debug("Poll {}: latest export record has status '{}' ({})", poll, status, record.getText().replace("\n", " | "));
+
+                if (EXPORT_COMPLETED_STATUS.equalsIgnoreCase(status)) {
+                    return latestRecord;
                 }
-            } catch (IOException ioException) {
-                log.trace("IOException while listing downloads: {}", ioException.getMessage());
+
+                if (status.toLowerCase(Locale.ROOT).contains("fail")) {
+                    log.warn("Export failed with status '{}'", status);
+                    return Optional.empty();
+                }
+            } else {
+                log.debug("Poll {}: there are no export records yet", poll);
             }
 
-            try {
-                TimeUnit.SECONDS.sleep(1);
-            } catch (InterruptedException interruptedException) {
-                log.error("Interrupted while waiting for download: {}", interruptedException.getMessage(), interruptedException);
-                Thread.currentThread().interrupt();
-                break;
+            if (System.nanoTime() >= deadlineNanos) {
+                log.warn("Export did not complete within {} seconds", EXPORT_TIMEOUT.toSeconds());
+                return Optional.empty();
             }
+
+            browser.pause(EXPORT_POLL_INTERVAL.toMillis(), "before polling export status again");
+        }
+    }
+
+    private Optional<WebElement> findLatestExportRecord(BrowserSession browser) throws InterruptedException {
+        WebElement table = browser.waitForVisible(EXPORT_RECORDS_TABLE);
+
+        browser.pause(500, "allow export records to start loading");
+        browser.waitUntil(driver -> driver.findElements(EXPORT_RECORDS_LOADING).isEmpty());
+
+        return table.findElements(EXPORT_RECORD_ROWS).stream().findFirst();
+    }
+
+    private Optional<Path> downloadExport(BrowserSession browser, WebElement exportRecord) {
+        Set<Path> existingFiles = browser.listDownloads();
+
+        log.trace("Clicking download button: {}", EXPORT_RECORD_DOWNLOAD);
+        browser.click(browser.waitForClickable(exportRecord.findElement(EXPORT_RECORD_DOWNLOAD)));
+
+        return browser.waitForNewDownload(existingFiles, DOWNLOAD_TIMEOUT);
+    }
+
+    /**
+     * Parses the exported report and checks it contains data of the requested month.
+     */
+    private Optional<List<StatisticsEntry>> parseExport(Path downloaded, YearMonth yearMonth) {
+        List<StatisticsEntry> entries = parseExcel(downloaded);
+        if (entries.isEmpty()) {
+            log.warn("No entries parsed from {}", downloaded.getFileName());
+            return Optional.empty();
         }
 
-        if (bestCandidate != null) {
-            log.debug("Returning last seen candidate after timeout: {}", bestCandidate.getFileName());
-        } else {
-            log.debug("No download candidate found before timeout");
+        long entriesInMonth = entries.stream().filter(entry -> YearMonth.from(entry.getDateTime()).equals(yearMonth)).count();
+        if (entriesInMonth == 0) {
+            log.error("Downloaded export {} contains no data for {}, probably an older export was downloaded", downloaded.getFileName(), yearMonth);
+            return Optional.empty();
+        } else if (entriesInMonth < entries.size()) {
+            log.warn("Downloaded export {} contains {} entries outside of {}", downloaded.getFileName(), entries.size() - entriesInMonth, yearMonth);
         }
 
-        return Optional.ofNullable(bestCandidate);
+        log.info("Scraped {} Solax entries for {}", entries.size(), yearMonth);
+        return Optional.of(entries);
+    }
+
+    /**
+     * Opens (or reloads, when already there) the plant list. Retried, as the application can redirect to the overview while loading.
+     */
+    private void openPlantList(BrowserSession browser, String appBaseUrl) throws InterruptedException {
+        String plantListUrl = appBaseUrl + PLANT_LIST_ROUTE;
+
+        for (int attempt = 1; attempt <= PLANT_LIST_ATTEMPTS; attempt++) {
+            if (browser.getCurrentUrl().contains(PLANT_LIST_ROUTE)) {
+                browser.reload();
+            } else {
+                browser.navigate(plantListUrl);
+            }
+
+            if (waitForPlantList(browser)) {
+                return;
+            }
+
+            log.debug("Application redirected from the plant list to {}, opening it again", BrowserSession.withoutQuery(browser.getCurrentUrl()));
+            browser.pause(2000, "allow application to settle before opening plant list again");
+        }
+
+        throw new IllegalStateException("Unable to open the plant list at " + plantListUrl);
+    }
+
+    /**
+     * Waits for the plant list to be usable, returns false when the application redirected elsewhere instead.
+     */
+    private boolean waitForPlantList(BrowserSession browser) {
+        log.trace("Waiting for plant list, export records button: {}", EXPORT_RECORDS_BUTTON);
+        Optional<WebElement> exportRecordsButton = browser.waitUntil(driver -> {
+            String url = driver.getCurrentUrl();
+            if (url == null || !url.contains(PLANT_LIST_ROUTE)) {
+                return Optional.empty();
+            }
+
+            WebElement button = ExpectedConditions.elementToBeClickable(EXPORT_RECORDS_BUTTON).apply(driver);
+            return button != null ? Optional.of(button) : null;
+        });
+
+        if (exportRecordsButton.isEmpty()) {
+            return false;
+        }
+
+        acceptPrivacyDialogIfShown(browser);
+        return true;
+    }
+
+    private void acceptPrivacyDialogIfShown(BrowserSession browser) {
+        browser.findDisplayed(PRIVACY_DIALOG_CONFIRM_BUTTON).ifPresent(button -> {
+            log.info("Privacy confirmation dialog is shown, accepting it");
+            browser.click(button);
+        });
     }
 
     private List<StatisticsEntry> parseExcel(Path path) {
@@ -433,88 +476,6 @@ public class SolaxScraper {
         } catch (Exception e) {
             log.warn("Non-numeric cell value '{}', defaulting to 0", formatter.formatCellValue(cell));
             return 0d;
-        }
-    }
-
-    private void navigate(WebDriver driver, String url, WebDriverWait wait) {
-        long startNanos = System.nanoTime();
-        String expectedPath = getLastFragmentPathSegment(url).orElse(url);
-        log.trace("Navigate: GET {} (expectedPath='{}')", url, expectedPath);
-        driver.get(url);
-
-        try {
-            wait.until(webDriver -> {
-                String currentUrl = webDriver.getCurrentUrl();
-                boolean matches = currentUrl != null && currentUrl.contains(expectedPath);
-
-                if (log.isTraceEnabled()) {
-                    log.trace("Waiting for URL to contain path '{}': current='{}' match={}", expectedPath, currentUrl, matches);
-                }
-
-                return matches;
-            });
-
-            long elapsedMs = Duration.ofNanos(System.nanoTime() - startNanos).toMillis();
-            log.debug("Navigation satisfied (path match) in {} ms. Landed at URL: {}", elapsedMs, driver.getCurrentUrl());
-        } catch (Exception e) {
-            log.warn("Navigation wait failed for URL '{}' with path '{}': {}", url, expectedPath, e.getMessage());
-        }
-
-        try {
-            traceSleep(2000, "post-navigation settling");
-        } catch (InterruptedException e) {
-            log.error("Interrupted while waiting for page to load: {}", e.getMessage(), e);
-            Thread.currentThread().interrupt();
-        }
-    }
-
-    public static Optional<String> getLastFragmentPathSegment(String urlString) {
-        URI uri = URI.create(urlString);
-        String fragment = uri.getFragment();                // e.g. "/plant-list" or "/plant-list?id=42"
-        if (fragment == null || fragment.isBlank()) {
-            return Optional.empty();
-        }
-
-        // Drop any query part inside the fragment: "/plant-list?id=42" -> "/plant-list"
-        int queryIndex = fragment.indexOf('?');
-        String fragmentPathOnly = queryIndex >= 0 ? fragment.substring(0, queryIndex) : fragment;
-
-        // Split on "/" and walk from the end to find the last non-empty segment
-        String[] segments = fragmentPathOnly.split("/+");
-        for (int i = segments.length - 1; i >= 0; i--) {
-            String segment = segments[i];
-
-            if (segment != null && !segment.isBlank()) {
-                String decoded = URLDecoder.decode(segment, StandardCharsets.UTF_8);
-                return Optional.of(decoded);
-            }
-        }
-
-        return Optional.empty();
-    }
-
-    private Optional<Path> createTempDownloadDir() {
-        try {
-            Path temp = Files.createTempDirectory("solax_downloads");
-            temp.toFile().deleteOnExit();
-            log.trace("Created temp download directory: {}", temp.toAbsolutePath());
-            return Optional.of(temp);
-        } catch (IOException e) {
-            log.error("Failed to create temporary directory for downloads: {}", e.getMessage(), e);
-            return Optional.empty();
-        }
-    }
-
-    /**
-     * Utility to log sleeps in trace level so long waits are visible in the logs.
-     */
-    private void traceSleep(long millis, String reason) throws InterruptedException {
-        if (log.isTraceEnabled()) {
-            log.trace("Sleeping {} ms ({})", millis, reason);
-        }
-        Thread.sleep(millis);
-        if (log.isTraceEnabled()) {
-            log.trace("Woke up after {} ms ({})", millis, reason);
         }
     }
 }

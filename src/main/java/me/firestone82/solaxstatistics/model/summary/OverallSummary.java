@@ -9,13 +9,15 @@ import java.util.List;
 @Getter
 public class OverallSummary {
     private final YearMonth date;
+    private final List<SummaryRow> quarterHourly;
     private final List<SummaryRow> hourly;
     private final List<SummaryRow> daily;
     private final SummaryRow total;
 
-    public OverallSummary(YearMonth date, List<SummaryRow> hourly) {
+    public OverallSummary(YearMonth date, List<SummaryRow> quarterHourly) {
         this.date = date;
-        this.hourly = hourly;
+        this.quarterHourly = quarterHourly;
+        this.hourly = SummaryRow.aggregate(quarterHourly, SummaryRow.Granularity.HOUR);
 
         List<SummaryRow> daily = SummaryRow.aggregate(this.hourly, SummaryRow.Granularity.DAY);
         this.daily = preprocessExportSelf(daily, false);
