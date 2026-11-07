@@ -28,9 +28,15 @@ cez:
     importPrice:
       eur: 0.3
       czk: 7.5
-    exportFee:
-      czk: 0.5
-      eur: 0.02
+    # Fee per exported kWh, deducted from the spot price. Each fee applies from its month (yyyy-MM) until the next
+    # one, so when the contract changes add an entry and the months before it keep their fee
+    exportFees:
+      - from: "2025-02"
+        czk: 0.5
+        eur: 0.02
+      - from: "2026-01"
+        czk: 0.35
+        eur: 0.014
 
 data:
   # Path to the directory where the data will be stored

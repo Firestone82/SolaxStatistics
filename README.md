@@ -35,7 +35,7 @@ SolaxStatistics logs into the [Solax Cloud](https://www.solaxcloud.com/user-cent
    cd SolaxStatistics
    ```
 
-2. Fill in your credentials and SMTP settings in `src/main/resources/application.yml` (Solax Cloud login, CEZ login, meter ID, tariff prices, email sender/recipient). Set `email.enabled: true` to send the summary email (off by default); `email.recipients` lists each address with the template it gets, `energy-report.html` (English) or `energy-report-cs.html` (Czech). `solax.headless` and `cez.headless` choose whether Chrome runs without a window. When a scraper fails, it logs the page it stopped on and saves a screenshot next to its downloads.
+2. Fill in your credentials and SMTP settings in `src/main/resources/application.yml` (Solax Cloud login, CEZ login, meter ID, tariff prices, email sender/recipient). The export fee is a list, `cez.tariff.exportFees`, where each fee applies from its `from` month (`yyyy-MM`) until the next one; when the contract changes, add an entry so the earlier months keep their fee. Set `email.enabled: true` to send the summary email (off by default); `email.recipients` lists each address with the template it gets, `energy-report.html` (English) or `energy-report-cs.html` (Czech). `solax.headless` and `cez.headless` choose whether Chrome runs without a window. When a scraper fails, it logs the page it stopped on and saves a screenshot next to its downloads.
 
 3. Build the project:
    ```bash

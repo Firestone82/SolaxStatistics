@@ -330,7 +330,9 @@ public class SummaryService {
                 ? (statisticsEntry.getExportMWh() * 1000)
                 : energyEntry.getExportMWh();
         double exportRest = Math.max((statisticsEntry.getExportMWh() * 1000) - exportGrid, 0);
-        double exportRevenueGrid = (exportGrid * exportPriceGrid) - (exportGrid * cezTariff.getExportFee().getCzk());
+        // The fee changes with the contract (cez.tariff.export-fees), the months before the export started have none
+        double exportFee = noExport ? 0.0 : cezTariff.getExportFee(YearMonth.from(dt)).getCzk();
+        double exportRevenueGrid = (exportGrid * exportPriceGrid) - (exportGrid * exportFee);
         double exportRevenueSelf = exportRest * exportPriceSelf;
 
         if (noExport) {
